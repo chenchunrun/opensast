@@ -33,6 +33,12 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin
 
+      - name: Validate custom SAST rules
+        run: |
+          python3 .claude/skills/sast-scan/tools/test_rules.py \
+            --rules-dir .claude/skills/sast-scan/rules/semgrep \
+            --validate-only
+
       - name: Run SAST scan
         run: |
           python3 .claude/skills/sast-scan/tools/sast_runner.py \

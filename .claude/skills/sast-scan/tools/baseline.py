@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timezone
 
 
-_BASELINE_VERSION = 1
+_BASELINE_VERSION = 2
 
 
 def _utcnow_iso() -> str:
@@ -31,7 +31,7 @@ def load_baseline(path: str) -> dict:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return _empty_baseline()
-    if data.get("version") != _BASELINE_VERSION:
+    if data.get("version") not in (_BASELINE_VERSION, 1):
         return _empty_baseline()
     return data
 
@@ -49,7 +49,7 @@ def generate_baseline(findings: list[dict]) -> dict:
         fp = f.get("fingerprint", "")
         if not fp:
             continue
-        baseline["fingerprints"][fp] = {
+        entry = {
             "first_seen": _utcnow_iso(),
             "last_seen": _utcnow_iso(),
             "tool": f.get("tool", ""),
@@ -57,10 +57,15 @@ def generate_baseline(findings: list[dict]) -> dict:
             "file": f.get("file", ""),
             "severity": f.get("severity", "info"),
         }
+        baseline["fingerprints"][fp] = entry
+        fp_v1 = f.get("fingerprint_v1", "")
+        if fp_v1 and fp_v1 != fp:
+            baseline["fingerprints"][fp_v1] = entry
     return baseline
 
 
 def filter_new_findings(findings: list[dict], baseline: dict) -> list[dict]:
+    baseline = json.loads(json.dumps(baseline))
     known_fps = set(baseline.get("fingerprints", {}).keys())
     suppressed_fps = set()
     for s in baseline.get("suppressions", []):
@@ -69,22 +74,29 @@ def filter_new_findings(findings: list[dict], baseline: dict) -> list[dict]:
     result: list[dict] = []
     for f in findings:
         fp = f.get("fingerprint", "")
+        fp_v1 = f.get("fingerprint_v1", "")
+        is_known = fp in known_fps or (fp_v1 and fp_v1 in known_fps)
+
         entry = dict(f)
-        entry["is_new"] = fp not in known_fps
+        entry["is_new"] = not is_known
 
         entry["is_suppressed"] = False
         entry["suppression_reason"] = None
-        if fp in suppressed_fps:
-            if is_suppressed(f, baseline):
+        check_fp = fp if fp in suppressed_fps else fp_v1 if fp_v1 in suppressed_fps else ""
+        if check_fp:
+            if is_suppressed({"fingerprint": check_fp}, baseline):
                 entry["is_suppressed"] = True
                 for s in baseline.get("suppressions", []):
-                    if s.get("fingerprint") == fp:
+                    if s.get("fingerprint") == check_fp:
                         entry["suppression_reason"] = s.get("reason")
                         break
 
-        if fp in known_fps:
-            baseline["fingerprints"][fp]["last_seen"] = _utcnow_iso()
-            baseline["fingerprints"][fp]["severity"] = f.get("severity", baseline["fingerprints"][fp].get("severity", "info"))
+        if is_known:
+            update_fp = fp if fp in known_fps else fp_v1
+            baseline["fingerprints"][update_fp]["last_seen"] = _utcnow_iso()
+            baseline["fingerprints"][update_fp]["severity"] = f.get(
+                "severity", baseline["fingerprints"][update_fp].get("severity", "info")
+            )
 
         result.append(entry)
     return result

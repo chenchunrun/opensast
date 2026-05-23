@@ -1,0 +1,85 @@
+rules:
+  - id: javascript.security.command-injection-exec
+    languages: [javascript]
+    severity: ERROR
+    message: "Detected child_process.exec with variable interpolation. Use execFile or spawn with array arguments instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              require('child_process').exec(`...${...}...`)
+          - pattern: |
+              $EXEC(`...${...}...`)
+          - pattern: |
+              require('child_process').exec("..." + $VAR + "...")
+          - pattern: |
+              $EXEC("..." + $VAR + "...")
+      - pattern-not: |
+          require('child_process').exec("...")
+      - pattern-not: |
+          $EXEC("...")
+
+  - id: javascript.security.sql-injection-string-concat
+    languages: [javascript]
+    severity: ERROR
+    message: "Detected SQL query using string interpolation or concatenation. Use parameterized queries instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CONN.query(`...${...}...`)
+          - pattern: |
+              $CONN.query("..." + $VAR + "...")
+          - pattern: |
+              $CONN.query("...", function(...) {...})
+          - pattern: |
+              $CONN.execute(`...${...}...`)
+          - pattern: |
+              $CONN.execute("..." + $VAR + "...")
+      - pattern-not: |
+          $CONN.query("...", [...])
+      - pattern-not: |
+          $CONN.query("...", $VAR)
+      - pattern-not: |
+          $CONN.execute("...", [...])
+
+  - id: javascript.security.xss-response-send
+    languages: [javascript]
+    severity: ERROR
+    message: "Detected res.send/res.write with string interpolation of user input. Sanitize output before sending to prevent XSS."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [javascript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RES.send(`...${...}...`)
+          - pattern: |
+              $RES.write(`...${...}...`)
+          - pattern: |
+              $RES.send("..." + $VAR + "...")
+          - pattern: |
+              $RES.write("..." + $VAR + "...")
+      - pattern-not: |
+          $RES.send(escapeHtml(...))
+      - pattern-not: |
+          $RES.write(escapeHtml(...))

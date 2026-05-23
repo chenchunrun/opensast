@@ -1,0 +1,60 @@
+rules:
+  - id: go.security.sql-injection-string-concat
+    languages: [go]
+    severity: ERROR
+    message: "Detected SQL query using fmt.Sprintf. Use parameterized queries with placeholder arguments instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.Query(fmt.Sprintf(...), ...)
+          - pattern: |
+              $DB.QueryRow(fmt.Sprintf(...), ...)
+          - pattern: |
+              $DB.Exec(fmt.Sprintf(...), ...)
+          - pattern: |
+              $DB.Query("..." + $VAR + "...")
+          - pattern: |
+              $DB.QueryRow("..." + $VAR + "...")
+          - pattern: |
+              $DB.Exec("..." + $VAR + "...")
+      - pattern-not: |
+          $DB.Query("...", ...)
+      - pattern-not: |
+          $DB.QueryRow("...", ...)
+      - pattern-not: |
+          $DB.Exec("...", ...)
+
+  - id: go.security.command-injection-exec
+    languages: [go]
+    severity: ERROR
+    message: "Detected exec.Command with user-controlled arguments. Validate and sanitize all external input before passing to commands."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              exec.Command($VAR, ...)
+          - pattern: |
+              exec.Command("sh", "-c", $VAR)
+          - pattern: |
+              exec.Command("/bin/sh", "-c", $VAR)
+          - pattern: |
+              exec.Command("bash", "-c", $VAR)
+          - pattern: |
+              exec.CommandContext($CTX, "sh", "-c", $VAR)
+      - pattern-not: |
+          exec.Command("...", "...")

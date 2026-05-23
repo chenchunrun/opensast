@@ -87,3 +87,6 @@ tools:
     timeout: 300
   codeql:
     timeout: 600
+    query_suite: security-extended
+    enable_cache: true
+    cache_dir: .claude/sast/codeql-cache

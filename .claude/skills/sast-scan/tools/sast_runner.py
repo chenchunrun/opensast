@@ -16,9 +16,8 @@ from baseline import filter_new_findings, load_baseline, save_baseline
 from ci_gate import evaluate_gate, get_exit_code
 from detect_project import detect_project
 from normalize_findings import (
+    NORMALIZERS,
     deduplicate_findings,
-    normalize_checkov,
-    normalize_gitleaks,
     normalize_semgrep,
 )
 from redact import redact_findings, redact_markdown, redact_sarif
@@ -45,6 +44,16 @@ SKILL_DIR = os.path.dirname(os.path.dirname(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(SKILL_DIR, "config", "default.yml")
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def load_config(config_path: str | None) -> dict:
     paths = []
     if config_path:
@@ -60,7 +69,7 @@ def load_config(config_path: str | None) -> dict:
             continue
         with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
-        merged.update(data)
+        merged = _deep_merge(merged, data)
     return merged
 
 
@@ -180,8 +189,16 @@ def run(args: argparse.Namespace) -> int:
 
     if tools_config.get("codeql", False):
         logger.info("Running CodeQL...")
-        codeql_timeout = config.get("tools", {}).get("codeql", {}).get("timeout", 600)
-        result = run_codeql(scan_target, output_dir, languages=list(detected_languages), timeout=codeql_timeout)
+        codeql_config = config.get("tools", {}).get("codeql", {})
+        codeql_timeout = codeql_config.get("timeout", 600)
+        result = run_codeql(
+            scan_target, output_dir,
+            languages=list(detected_languages),
+            query_suite=codeql_config.get("query_suite", "security-extended"),
+            timeout=codeql_timeout,
+            profile=profile_name,
+            enable_cache=codeql_config.get("enable_cache", True),
+        )
         scan_results.append(result)
         if not result["success"]:
             tool_errors.append({"tool": "codeql", "error": result.get("error_message", "unknown")})
@@ -217,12 +234,8 @@ def run(args: argparse.Namespace) -> int:
             continue
 
         tool = r.get("tool", "")
-        if tool == "gitleaks":
-            all_findings.extend(normalize_gitleaks(sarif_data))
-        elif tool == "checkov":
-            all_findings.extend(normalize_checkov(sarif_data))
-        else:
-            all_findings.extend(normalize_semgrep(sarif_data))
+        normalizer = NORMALIZERS.get(tool, normalize_semgrep)
+        all_findings.extend(normalizer(sarif_data))
 
     all_findings = deduplicate_findings(all_findings)
 

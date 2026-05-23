@@ -1,0 +1,74 @@
+rules:
+  - id: java.security.sql-injection-string-concat
+    languages: [java]
+    severity: ERROR
+    message: "Detected SQL query using string concatenation. Use PreparedStatement with parameterized queries instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $STMT.executeQuery("..." + $VAR + "...")
+          - pattern: |
+              $STMT.executeQuery("..." + $VAR)
+          - pattern: |
+              $STMT.execute("..." + $VAR + "...")
+          - pattern: |
+              $STMT.execute("..." + $VAR)
+          - pattern: |
+              $STMT.executeUpdate("..." + $VAR + "...")
+          - pattern: |
+              $STMT.executeUpdate("..." + $VAR)
+          - pattern: |
+              $CONN.createStatement().executeQuery("..." + $VAR + "...")
+          - pattern: |
+              $CONN.createStatement().execute("..." + $VAR + "...")
+      - pattern-not: |
+          $STMT.executeQuery("...")
+
+  - id: java.security.command-injection-runtime-exec
+    languages: [java]
+    severity: ERROR
+    message: "Detected Runtime.getRuntime().exec with string concatenation. Use ProcessBuilder with array arguments instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Runtime.getRuntime().exec("..." + $VAR + "...")
+          - pattern: |
+              Runtime.getRuntime().exec("..." + $VAR)
+          - pattern: |
+              Runtime.getRuntime().exec(String.format("...", ...))
+      - pattern-not: |
+          Runtime.getRuntime().exec(new String[]{...})
+
+  - id: java.security.jndi-injection
+    languages: [java]
+    severity: ERROR
+    message: "Detected JNDI lookup with user-controlled input. JNDI injection can lead to remote code execution."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-917"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern: |
+          $CTX.lookup($VAR)
+      - pattern-not: |
+          $CTX.lookup("...")
