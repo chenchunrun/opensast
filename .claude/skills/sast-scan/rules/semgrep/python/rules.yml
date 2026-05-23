@@ -1,0 +1,16 @@
+rules:
+  - id: python.security.command-injection-subprocess
+    languages: [python]
+    severity: ERROR
+    message: "Avoid shell=True with user-controlled input in subprocess calls"
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [python]
+    patterns:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern-not: subprocess.run("...", shell=True, ...)

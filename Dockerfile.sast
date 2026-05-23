@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+
+LABEL maintainer="OpenSAST"
+LABEL description="Multi-language SAST scanning environment"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+    semgrep \
+    checkov \
+    pyyaml
+
+RUN curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | \
+    sh -s -- -b /usr/local/bin v8.21.2
+
+RUN pip install --no-cache-dir bandit || true
+
+WORKDIR /scan
+
+COPY .claude/skills/sast-scan/ /opt/sast-scan/
+
+ENV PATH="/usr/local/bin:${PATH}"
+
+ENTRYPOINT ["python3", "/opt/sast-scan/tools/sast_runner.py"]
+CMD ["--target", "/scan", "--profile", "standard", "--format", "all"]

@@ -1,0 +1,89 @@
+version: 1
+
+default_profile: standard
+
+targets:
+  include:
+    - src
+    - app
+    - packages
+    - lib
+  exclude:
+    - node_modules
+    - vendor
+    - dist
+    - build
+    - .git
+    - .venv
+    - __pycache__
+    - .tox
+    - .mypy_cache
+    - .pytest_cache
+
+profiles:
+  quick:
+    changed_only: true
+    tools:
+      semgrep: true
+      gitleaks: true
+      codeql: false
+      checkov: false
+    fail_on: critical
+
+  standard:
+    changed_only: false
+    tools:
+      semgrep: true
+      gitleaks: true
+      codeql: false
+      checkov: true
+    fail_on: high
+
+  deep:
+    changed_only: false
+    tools:
+      semgrep: true
+      gitleaks: true
+      codeql: true
+      checkov: true
+    fail_on: medium
+
+severity_mapping:
+  block:
+    - critical
+    - high
+  warn:
+    - medium
+  info:
+    - low
+    - info
+
+report:
+  formats:
+    - markdown
+    - json
+    - sarif
+  output_dir: .claude/sast/results
+
+baseline:
+  enabled: true
+  file: .claude/sast/baseline.json
+
+rules:
+  semgrep:
+    - auto
+    - .claude/skills/sast-scan/rules/semgrep
+  codeql:
+    - security-extended
+    - security-and-quality
+
+tools:
+  semgrep:
+    timeout: 300
+    max_target_size_mb: 50
+  gitleaks:
+    timeout: 120
+  checkov:
+    timeout: 300
+  codeql:
+    timeout: 600

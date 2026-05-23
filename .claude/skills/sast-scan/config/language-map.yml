@@ -1,0 +1,237 @@
+languages:
+  javascript:
+    extensions:
+      - .js
+      - .mjs
+      - .cjs
+    manifests:
+      - package.json
+    frameworks:
+      express:
+        files: ["package.json"]
+        dependencies: ["express"]
+      react:
+        files: ["package.json"]
+        dependencies: ["react"]
+      next:
+        files: ["package.json"]
+        dependencies: ["next"]
+      vue:
+        files: ["package.json"]
+        dependencies: ["vue"]
+    tools:
+      - semgrep
+    native_tools:
+      - eslint-plugin-security
+
+  typescript:
+    extensions:
+      - .ts
+      - .tsx
+      - .mts
+      - .cts
+    manifests:
+      - tsconfig.json
+      - package.json
+    frameworks:
+      nest:
+        files: ["package.json"]
+        dependencies: ["@nestjs/core"]
+    tools:
+      - semgrep
+    native_tools:
+      - eslint-plugin-security
+
+  python:
+    extensions:
+      - .py
+      - .pyi
+    manifests:
+      - pyproject.toml
+      - requirements.txt
+      - Pipfile
+      - setup.py
+      - setup.cfg
+    frameworks:
+      django:
+        files: ["settings.py", "manage.py"]
+        dependencies: ["django"]
+      flask:
+        files: ["requirements.txt", "Pipfile", "pyproject.toml"]
+        dependencies: ["flask"]
+      fastapi:
+        files: ["requirements.txt", "Pipfile", "pyproject.toml"]
+        dependencies: ["fastapi"]
+    tools:
+      - semgrep
+    native_tools:
+      - bandit
+
+  java:
+    extensions:
+      - .java
+    manifests:
+      - pom.xml
+      - build.gradle
+      - build.gradle.kts
+      - settings.gradle
+    frameworks:
+      spring:
+        files: ["pom.xml", "build.gradle"]
+        dependencies: ["spring-boot"]
+    tools:
+      - semgrep
+    native_tools:
+      - spotbugs
+
+  kotlin:
+    extensions:
+      - .kt
+      - .kts
+    manifests:
+      - build.gradle.kts
+      - pom.xml
+    tools:
+      - semgrep
+
+  go:
+    extensions:
+      - .go
+    manifests:
+      - go.mod
+      - go.sum
+    tools:
+      - semgrep
+    native_tools:
+      - gosec
+
+  csharp:
+    extensions:
+      - .cs
+    manifests:
+      - .csproj
+      - .sln
+    tools:
+      - semgrep
+
+  cpp:
+    extensions:
+      - .c
+      - .cpp
+      - .cc
+      - .cxx
+      - .h
+      - .hpp
+    manifests:
+      - CMakeLists.txt
+      - Makefile
+      - compile_commands.json
+    tools:
+      - semgrep
+    native_tools:
+      - cppcheck
+
+  ruby:
+    extensions:
+      - .rb
+    manifests:
+      - Gemfile
+      - Gemfile.lock
+    frameworks:
+      rails:
+        files: ["Gemfile"]
+        dependencies: ["rails"]
+    tools:
+      - semgrep
+    native_tools:
+      - brakeman
+
+  php:
+    extensions:
+      - .php
+    manifests:
+      - composer.json
+      - composer.lock
+    frameworks:
+      laravel:
+        files: ["composer.json"]
+        dependencies: ["laravel/framework"]
+    tools:
+      - semgrep
+
+  rust:
+    extensions:
+      - .rs
+    manifests:
+      - Cargo.toml
+      - Cargo.lock
+    tools:
+      - semgrep
+
+  swift:
+    extensions:
+      - .swift
+    manifests:
+      - Package.swift
+    tools:
+      - semgrep
+
+  terraform:
+    extensions:
+      - .tf
+      - .tf.json
+    manifests: []
+    tools:
+      - semgrep
+      - checkov
+
+  cloudformation:
+    extensions:
+      - .yaml
+      - .yml
+    manifests: []
+    tools:
+      - checkov
+    detect_by_content: true
+
+  kubernetes:
+    extensions:
+      - .yaml
+      - .yml
+    manifests: []
+    tools:
+      - checkov
+    detect_by_content: true
+
+severity_levels:
+  critical: 4
+  high: 3
+  medium: 2
+  low: 1
+  info: 0
+  note: 0
+  warning: 2
+  error: 3
+
+cwe_to_owasp:
+  "CWE-79": "A03:2021-Injection"
+  "CWE-89": "A03:2021-Injection"
+  "CWE-78": "A03:2021-Injection"
+  "CWE-77": "A03:2021-Injection"
+  "CWE-22": "A01:2021-Broken Access Control"
+  "CWE-787": "A04:2021-Insecure Design"
+  "CWE-125": "A04:2021-Insecure Design"
+  "CWE-20": "A04:2021-Insecure Design"
+  "CWE-352": "A01:2021-Broken Access Control"
+  "CWE-434": "A04:2021-Insecure Design"
+  "CWE-502": "A08:2021-Software and Data Integrity Failures"
+  "CWE-190": "A04:2021-Insecure Design"
+  "CWE-287": "A07:2021-Identification and Authentication Failures"
+  "CWE-798": "A07:2021-Identification and Authentication Failures"
+  "CWE-306": "A01:2021-Broken Access Control"
+  "CWE-862": "A01:2021-Broken Access Control"
+  "CWE-200": "A01:2021-Broken Access Control"
+  "CWE-611": "A05:2021-Security Misconfiguration"
+  "CWE-918": "A10:2021-Server-Side Request Forgery"
+  "CWE-94": "A03:2021-Injection"
+  "CWE-770": "A04:2021-Insecure Design"

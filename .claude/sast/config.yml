@@ -1,0 +1,21 @@
+version: 1
+
+default_profile: standard
+
+targets:
+  include:
+    - src
+    - app
+    - packages
+  exclude:
+    - node_modules
+    - vendor
+    - dist
+    - build
+    - .git
+    - .venv
+
+report:
+  formats:
+    - markdown
+  output_dir: .claude/sast/results
