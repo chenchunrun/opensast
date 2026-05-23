@@ -1,0 +1,27 @@
+# GitLab CI SAST Template
+# Copy to your repository as .gitlab-ci.yml or include via CI/CD include
+
+sast:
+  stage: test
+  image: python:3.12-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git curl
+    - pip install --no-cache-dir pyyaml semgrep
+    - pip install --no-cache-dir checkov || true
+    - curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin || true
+  script:
+    - python3 .claude/skills/sast-scan/tools/sast_runner.py
+        --target .
+        --profile standard
+        --format all
+        --fail-on high
+  artifacts:
+    when: always
+    paths:
+      - .claude/sast/results/
+    reports:
+      sast: .claude/sast/results/merged.sarif
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  allow_failure: false
