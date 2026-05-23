@@ -1,8 +1,8 @@
 rules:
   - id: javascript.security.command-injection-exec
-    languages: [javascript]
+    languages: [javascript, typescript]
     severity: ERROR
-    message: "Detected child_process.exec with variable interpolation. Use execFile or spawn with array arguments instead."
+    message: "Detected child_process.exec/execSync with variable interpolation. Use execFile or spawn with array arguments instead."
     metadata:
       category: security
       cwe:
@@ -10,24 +10,36 @@ rules:
       owasp:
         - "A03:2021-Injection"
       confidence: HIGH
-      technology: [javascript]
+      technology: [javascript, typescript, nodejs]
     patterns:
       - pattern-either:
           - pattern: |
+              exec(`...${...}...`)
+          - pattern: |
+              execSync(`...${...}...`)
+          - pattern: |
+              exec("..." + $VAR + "...")
+          - pattern: |
+              execSync("..." + $VAR + "...")
+          - pattern: |
               require('child_process').exec(`...${...}...`)
           - pattern: |
-              $EXEC(`...${...}...`)
+              require('child_process').execSync(`...${...}...`)
           - pattern: |
               require('child_process').exec("..." + $VAR + "...")
           - pattern: |
-              $EXEC("..." + $VAR + "...")
+              require('child_process').execSync("..." + $VAR + "...")
+      - pattern-not: |
+          exec("...")
+      - pattern-not: |
+          execSync("...")
       - pattern-not: |
           require('child_process').exec("...")
       - pattern-not: |
-          $EXEC("...")
+          require('child_process').execSync("...")
 
   - id: javascript.security.sql-injection-string-concat
-    languages: [javascript]
+    languages: [javascript, typescript]
     severity: ERROR
     message: "Detected SQL query using string interpolation or concatenation. Use parameterized queries instead."
     metadata:
@@ -37,7 +49,7 @@ rules:
       owasp:
         - "A03:2021-Injection"
       confidence: HIGH
-      technology: [javascript]
+      technology: [javascript, typescript, nodejs]
     patterns:
       - pattern-either:
           - pattern: |
@@ -50,6 +62,10 @@ rules:
               $CONN.execute(`...${...}...`)
           - pattern: |
               $CONN.execute("..." + $VAR + "...")
+          - pattern: |
+              $CONN.$queryRawUnsafe(`...${...}...`)
+          - pattern: |
+              $CONN.$queryRawUnsafe("..." + $VAR + "...")
       - pattern-not: |
           $CONN.query("...", [...])
       - pattern-not: |
@@ -58,8 +74,8 @@ rules:
           $CONN.execute("...", [...])
 
   - id: javascript.security.xss-response-send
-    languages: [javascript]
-    severity: ERROR
+    languages: [javascript, typescript]
+    severity: WARNING
     message: "Detected res.send/res.write with string interpolation of user input. Sanitize output before sending to prevent XSS."
     metadata:
       category: security
@@ -67,8 +83,8 @@ rules:
         - "CWE-79"
       owasp:
         - "A03:2021-Injection"
-      confidence: HIGH
-      technology: [javascript]
+      confidence: MEDIUM
+      technology: [javascript, typescript, express]
     patterns:
       - pattern-either:
           - pattern: |
@@ -83,3 +99,225 @@ rules:
           $RES.send(escapeHtml(...))
       - pattern-not: |
           $RES.write(escapeHtml(...))
+
+  - id: javascript.security.path-traversal
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected file system operation with user-controlled path component. Validate and sanitize paths to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $FS.readFile(`...${...}...`)
+          - pattern: |
+              $FS.readFile("..." + $VAR + "...")
+          - pattern: |
+              $FS.readFileSync(`...${...}...`)
+          - pattern: |
+              $FS.readFileSync("..." + $VAR + "...")
+          - pattern: |
+              $FS.writeFile(`...${...}...`, ...)
+          - pattern: |
+              $FS.writeFile("..." + $VAR + "...", ...)
+          - pattern: |
+              $FS.unlink(`...${...}...`)
+          - pattern: |
+              $FS.unlinkSync(`...${...}...`)
+          - pattern: |
+              path.join($BASE, $USER_INPUT)
+      - pattern-not: |
+          path.join("...", "...")
+      - pattern-not: |
+          $FS.readFile("...")
+
+  - id: javascript.security.ssrf-fetch
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected fetch/HTTP request with user-controlled URL. Validate URLs against an allowlist to prevent SSRF."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              fetch($REQ.query.$FIELD)
+          - pattern: |
+              fetch($REQ.body.$FIELD)
+          - pattern: |
+              fetch($REQ.params.$FIELD)
+          - pattern: |
+              fetch($USER_INPUT)
+          - pattern: |
+              axios.get($USER_INPUT)
+          - pattern: |
+              axios.post($USER_INPUT, ...)
+          - pattern: |
+              http.get($USER_INPUT, ...)
+          - pattern: |
+              https.get($USER_INPUT, ...)
+      - pattern-not: |
+          fetch("...")
+      - pattern-not: |
+          axios.get("...")
+      - pattern-not-regex: |
+          fetch\(\s*`[^`]*\$\{[^}]*\}[^`]*`\s*\)
+
+  - id: javascript.security.open-redirect
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected redirect with user-controlled URL. Validate redirect targets against an allowlist."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-601"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nextjs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $RES.redirect($USER_INPUT)
+          - pattern: |
+              NextResponse.redirect($USER_INPUT)
+          - pattern: |
+              Response.redirect($USER_INPUT)
+      - pattern-not: |
+          $RES.redirect("...")
+      - pattern-not: |
+          NextResponse.redirect(new URL("...", ...))
+
+  - id: javascript.security.insecure-random
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected Math.random() used for security-sensitive purposes. Use crypto.randomBytes() or crypto.getRandomValues() instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: LOW
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern: Math.random()
+      - pattern-either:
+          - pattern-inside: |
+              $ID = `...${...}...`
+          - pattern-inside: |
+              $ID = $VAR + "..."
+          - pattern-inside: |
+              $ID = $VAR.toString(...)
+      - pattern-not-inside: |
+          if (Math.random() < $VAL) { ... }
+      - pattern-not-inside: |
+          Math.random() * $VAL
+
+  - id: javascript.security.timing-attack
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected non-constant-time comparison of secrets. Use crypto.timingSafeEqual() to prevent timing attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-208"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $SECRET === $VAR
+          - pattern: |
+              $VAR === $SECRET
+          - pattern: |
+              $SECRET !== $VAR
+          - pattern: |
+              $VAR !== $SECRET
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: "(?i)(password|token|secret|key|api_key|auth)"
+      - pattern-not: |
+          crypto.timingSafeEqual(...)
+
+  - id: javascript.security.hardcoded-secret-default
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected hardcoded default value for secret/key. Remove defaults or use runtime validation to ensure secrets are set."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              process.env.$ENV || "..."
+          - pattern: |
+              process.env[$ENV] || "..."
+      - metavariable-regex:
+          metavariable: $ENV
+          regex: "(?i).*(SECRET|KEY|PASSWORD|TOKEN|SALT|API_KEY|PRIVATE|AUTH).*"
+
+  - id: javascript.security.insecure-cors
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected dynamic CORS origin header. Validate origin against an allowlist instead of reflecting user input."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-942"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $HEADERS.set("Access-Control-Allow-Origin", $REQ.headers.get("origin"))
+          - pattern: |
+              $HEADERS.set("Access-Control-Allow-Origin", $REQ.headers.get(...))
+          - pattern: |
+              $RES.setHeader("Access-Control-Allow-Origin", $REQ.headers.origin)
+          - pattern: |
+              $RES.setHeader("Access-Control-Allow-Origin", "*")
+      - pattern-not: |
+          $HEADERS.set("Access-Control-Allow-Origin", "...")
+
+  - id: javascript.security.csrf-bypass-env
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected CSRF protection bypass based on environment variable. CSRF protection should be enabled in all environments."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-352"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern: |
+          if (process.env.NODE_ENV !== "production") {
+              return { ok: true }
+          }
+      - pattern: |
+          if (process.env.$ENV !== "production") {
+              return ...
+          }

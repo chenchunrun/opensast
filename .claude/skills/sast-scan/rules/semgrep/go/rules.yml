@@ -58,3 +58,64 @@ rules:
               exec.CommandContext($CTX, "sh", "-c", $VAR)
       - pattern-not: |
           exec.Command("...", "...")
+
+  - id: go.security.ssrf-http-get
+    languages: [go]
+    severity: ERROR
+    message: "Detected HTTP request with user-controlled URL. Validate URLs against an allowlist to prevent SSRF."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: http.Get($URL)
+          - pattern: $CLIENT.Get($URL)
+          - pattern: $CLIENT.Post($URL, ...)
+      - pattern-not: http.Get("...")
+      - pattern-not: $CLIENT.Get("...")
+
+  - id: go.security.path-traversal
+    languages: [go]
+    severity: ERROR
+    message: "Detected file operation with user-controlled path. Validate paths to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: os.Open(filepath.Join($BASE, $USER_INPUT))
+          - pattern: os.ReadFile(filepath.Join($BASE, $USER_INPUT))
+          - pattern: os.WriteFile(filepath.Join($BASE, $USER_INPUT), ...)
+          - pattern: ioutil.ReadFile(filepath.Join($BASE, $USER_INPUT))
+      - pattern-not: os.Open(filepath.Join("...", "..."))
+
+  - id: go.security.insecure-random
+    languages: [go]
+    severity: WARNING
+    message: "Detected math/rand used for security-sensitive operations. Use crypto/rand instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: rand.Intn(...)
+          - pattern: rand.Read(...)
+          - pattern: rand.Int(...)
+      - pattern-not-inside: |
+          import "crypto/rand"
+          ...

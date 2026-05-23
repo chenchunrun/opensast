@@ -14,17 +14,26 @@ SCAN_EXTENSIONS = {
     ".scala", ".swift", ".tf", ".tfvars",
 }
 
+DEFAULT_EXCLUDE_DIRS = frozenset({
+    "node_modules", ".git", "venv", ".venv", "__pycache__",
+    "dist", "build", ".gradle", "target", "vendor",
+    ".next", ".nuxt", ".turbo", "coverage", ".cache",
+    ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    ".parcel-cache", ".sass-cache", ".vscode", ".idea",
+})
 
-def _collect_scan_targets(target: str) -> list[str]:
+
+def _collect_scan_targets(
+    target: str,
+    exclude_dirs: set[str] | None = None,
+) -> list[str]:
     if os.path.isfile(target):
         return [os.path.abspath(target)]
+    skipped = DEFAULT_EXCLUDE_DIRS | (exclude_dirs or set())
     abs_target = os.path.abspath(target)
     targets = []
     for root, dirs, files in os.walk(abs_target):
-        dirs[:] = [d for d in dirs if d not in {
-            "node_modules", ".git", "venv", ".venv", "__pycache__",
-            "dist", "build", ".gradle", "target", "vendor",
-        }]
+        dirs[:] = [d for d in dirs if d not in skipped]
         for f in files:
             _, ext = os.path.splitext(f)
             if ext.lower() in SCAN_EXTENSIONS:
@@ -38,6 +47,7 @@ def run_semgrep(
     config_paths: list[str] | None = None,
     timeout: int = 300,
     max_size_mb: int = 50,
+    exclude_dirs: list[str] | None = None,
 ) -> dict:
     if not shutil.which("semgrep"):
         return {
@@ -54,7 +64,8 @@ def run_semgrep(
     sarif_path = os.path.join(output_dir, "semgrep.sarif")
     json_path = os.path.join(output_dir, "semgrep.json")
 
-    scan_targets = _collect_scan_targets(target)
+    extra_excludes = set(exclude_dirs) if exclude_dirs else set()
+    scan_targets = _collect_scan_targets(target, extra_excludes)
     if not scan_targets:
         logger.info("No scannable files found in target: %s", target)
         return {
@@ -66,7 +77,6 @@ def run_semgrep(
     cmd = [
         "semgrep",
         "--config", "auto",
-        "--no-git-ignore",
         "--sarif-output", sarif_path,
         "--json-output", json_path,
         "--timeout", str(timeout),

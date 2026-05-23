@@ -1,0 +1,63 @@
+rules:
+  - id: js.security.xss-html-template-title
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected user-controlled value in HTML <title> tag. Escape the value to prevent XSS."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              `<title>${$VAR}</title>`
+          - pattern: |
+              "<title>" + $VAR + "</title>"
+
+  - id: js.security.xss-html-template-attribute
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected user-controlled value in HTML attribute. Escape the value to prevent XSS."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              `...href="${$VAR}"...`
+          - pattern: |
+              `...src="${$VAR}"...`
+          - pattern: |
+              `...action="${$VAR}"...`
+          - pattern: |
+              `...style="${$VAR}"...`
+
+  - id: js.security.header-injection-content-disposition
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected Content-Disposition header with unescaped variable. Sanitize filename to prevent header injection."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-113"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              "Content-Disposition": `...filename="${$VAR}"...`
+          - pattern: |
+              "Content-Disposition": "...filename=\"" + $VAR + "\""
+          - pattern: |
+              $HEADERS.set("Content-Disposition", `...${$VAR}...`)

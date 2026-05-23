@@ -108,8 +108,11 @@ def normalize_semgrep(sarif_data: dict) -> list[dict]:
     for run in sarif_data.get("runs", []):
         for result in run.get("results", []):
             rule_id = result.get("ruleId", "unknown")
-            severity = SEVERITY_MAP_SEMGREP.get(result.get("level", "note").lower(), "info")
             rule_def = _find_rule(run, rule_id, result.get("ruleIndex"))
+            rule_level = rule_def.get("defaultConfiguration", {}).get("level", "note")
+            severity = SEVERITY_MAP_SEMGREP.get(
+                (result.get("level") or rule_level).lower(), "info",
+            )
             tags = rule_def.get("properties", {}).get("tags", [])
             short_desc = rule_def.get("shortDescription", {}).get("text", rule_id)
             props = rule_def.get("properties", {})
@@ -286,7 +289,8 @@ def normalize_codeql(sarif_data: dict) -> list[dict]:
             if sev_str:
                 severity = _severity_from_score(sev_str)
             else:
-                severity = SEVERITY_MAP_SEMGREP.get(result.get("level", "note").lower(), "info")
+                codeql_level = result.get("level") or rule_def.get("defaultConfiguration", {}).get("level", "note")
+                severity = SEVERITY_MAP_SEMGREP.get(codeql_level.lower(), "info")
             tags = props.get("tags", [])
             short_desc = rule_def.get("shortDescription", {}).get("text", rule_id)
 

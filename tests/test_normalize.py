@@ -486,3 +486,100 @@ def test_normalizers_dict_contains_all_tools():
 
 def test_normalizers_unknown_tool_falls_through():
     assert NORMALIZERS.get("unknown-tool", normalize_semgrep) is normalize_semgrep
+
+
+# --- Severity fallback regression tests ---
+
+
+def test_semgrep_severity_fallback_to_rule_config():
+    """When result.level is missing, severity should come from rule.defaultConfiguration.level."""
+    sarif = {
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "semgrep", "version": "1.0",
+                "rules": [{
+                    "id": "test.error-rule",
+                    "shortDescription": {"text": "Test rule"},
+                    "properties": {"tags": ["CWE-78"]},
+                    "defaultConfiguration": {"level": "error"},
+                }],
+            }},
+            "results": [{
+                "ruleId": "test.error-rule",
+                "ruleIndex": 0,
+                "message": {"text": "Test"},
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": "app.py"},
+                        "region": {"startLine": 1, "endLine": 1},
+                    }
+                }],
+            }],
+        }],
+    }
+    findings = normalize_semgrep(sarif)
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "high"
+
+
+def test_semgrep_severity_warning_from_rule_config():
+    """Rule with warning level should produce medium severity."""
+    sarif = {
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "semgrep", "version": "1.0",
+                "rules": [{
+                    "id": "test.warn-rule",
+                    "shortDescription": {"text": "Test"},
+                    "properties": {"tags": []},
+                    "defaultConfiguration": {"level": "warning"},
+                }],
+            }},
+            "results": [{
+                "ruleId": "test.warn-rule",
+                "ruleIndex": 0,
+                "message": {"text": "Test"},
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": "a.py"},
+                        "region": {"startLine": 1, "endLine": 1},
+                    }
+                }],
+            }],
+        }],
+    }
+    findings = normalize_semgrep(sarif)
+    assert findings[0]["severity"] == "medium"
+
+
+def test_codeql_severity_fallback_to_rule_config():
+    """CodeQL with no security-severity and no result.level should use rule defaultConfiguration."""
+    sarif = {
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "CodeQL", "version": "2.15",
+                "rules": [{
+                    "id": "test/codeql-rule",
+                    "shortDescription": {"text": "Test"},
+                    "properties": {"tags": ["security", "CWE-89"]},
+                    "defaultConfiguration": {"level": "warning"},
+                }],
+            }},
+            "results": [{
+                "ruleId": "test/codeql-rule",
+                "ruleIndex": 0,
+                "message": {"text": "SQL injection"},
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {"uri": "db.py"},
+                        "region": {"startLine": 5, "endLine": 5},
+                    }
+                }],
+            }],
+        }],
+    }
+    findings = normalize_codeql(sarif)
+    assert findings[0]["severity"] == "medium"

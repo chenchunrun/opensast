@@ -1,0 +1,85 @@
+rules:
+  - id: nextjs.auth.missing-csrf-post
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "POST/PUT/DELETE/PATCH endpoint without CSRF protection. Call checkCsrf(req) before processing the request."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-352"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [nextjs, javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              export async function POST($REQ: Request, ...) { ... }
+          - pattern: |
+              export async function PUT($REQ: Request, ...) { ... }
+          - pattern: |
+              export async function DELETE($REQ: Request, ...) { ... }
+          - pattern: |
+              export async function PATCH($REQ: Request, ...) { ... }
+      - pattern-not: |
+          checkCsrf(...)
+      - pattern-not: |
+          csrfToken(...)
+      - pattern-not: |
+          checkCsrf($REQ)
+
+  - id: nextjs.validation.missing-zod-parse
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Request body parsed without Zod schema validation. Use schema.safeParse(body) to validate input."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-20"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [nextjs, javascript, typescript]
+    patterns:
+      - pattern: |
+          await $REQ.json()
+      - pattern-not-inside: |
+          $SCHEMA.safeParse(...)
+      - pattern-not-inside: |
+          $SCHEMA.parse(...)
+      - pattern-not-inside: |
+          $SCHEMA.validate(...)
+      - pattern-not: |
+          z.object(...)
+
+  - id: nextjs.validation.unsafe-type-assertion
+    languages: [javascript, typescript]
+    severity: INFO
+    message: "Type assertion used instead of runtime validation. Use Zod schema to validate request data at runtime."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-20"
+      confidence: LOW
+      technology: [nextjs, javascript, typescript]
+    patterns:
+      - pattern: $BODY as Record<string, unknown>
+
+  - id: nextjs.security.query-raw-unsafe
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected $queryRawUnsafe which bypasses Prisma's query safety. Use $queryRaw with tagged template literals."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [nextjs, prisma, javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.$queryRawUnsafe(...)
+          - pattern: |
+              $DB.$executeRawUnsafe(...)

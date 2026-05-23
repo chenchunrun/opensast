@@ -51,10 +51,28 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py $ARGUMENTS
 
 5. Read the generated summary at `.claude/sast/results/summary.json`.
 6. Read the generated report at `.claude/sast/results/report.md`.
-7. Explain the most important findings to the user.
-8. Highlight blocking issues based on the configured gate.
-9. Provide remediation guidance with code examples.
-10. Ask for explicit permission before applying any code changes.
+7. **LLM Deep Analysis** — Read `.claude/sast/results/analysis-targets.json`. For each high-priority target:
+   - Read the source file identified in `llm_analysis_targets`
+   - Analyze for authorization bypass (IDOR), missing input validation, business logic flaws
+   - Generate findings using the standard format:
+     ```
+     [SEVERITY] rule-id — file:line [CWE-XXX]
+     Evidence: specific code that is vulnerable
+     Fix: specific code change recommendation
+     ```
+   - Priority: critical targets (missing-authentication) → high targets (idor-risk, missing-validation)
+8. **Middleware Coverage Review** — Check `middleware_coverage` in analysis-targets.json:
+   - Report percentage of routes with CSRF protection
+   - Report percentage of routes with rate limiting
+   - Highlight routes with `has_auth: false` as potential auth bypass
+9. **.env File Warning** — If `env_files` is non-empty, warn the user:
+   - "Detected .env files — install Gitleaks for secret scanning: `brew install gitleaks`"
+   - Do NOT read or display .env file contents
+10. Merge rule-based findings (from reports) with LLM findings (from your analysis).
+11. Explain the most important findings to the user, grouped by severity.
+12. Highlight blocking issues based on the configured gate.
+13. Provide remediation guidance with code examples.
+14. Ask for explicit permission before applying any code changes.
 
 ## Scan profiles
 

@@ -32,6 +32,7 @@ from run_gitleaks import run_gitleaks
 from run_gosec import run_gosec
 from run_semgrep import run_semgrep
 from sarif_merge import merge_sarif_files, normalize_paths_in_sarif
+from context_collector import collect_analysis_targets, save_analysis_targets
 
 logger = logging.getLogger("sast_runner")
 
@@ -166,7 +167,13 @@ def run(args: argparse.Namespace) -> int:
         logger.info("Running Semgrep...")
         extra_configs = config.get("rules", {}).get("semgrep", [])
         config_paths = [c for c in extra_configs if c != "auto"] if extra_configs else None
-        result = run_semgrep(scan_target, output_dir, config_paths=config_paths, timeout=tool_timeout)
+        exclude_dirs = config.get("targets", {}).get("exclude", [])
+        result = run_semgrep(
+            scan_target, output_dir,
+            config_paths=config_paths,
+            timeout=tool_timeout,
+            exclude_dirs=exclude_dirs,
+        )
         scan_results.append(result)
         if not result["success"]:
             tool_errors.append({"tool": "semgrep", "error": result.get("error_message", "unknown")})
@@ -338,6 +345,17 @@ def run(args: argparse.Namespace) -> int:
 
     claude_output = generate_claude_summary(summary, all_findings)
     print("\n" + claude_output)
+
+    # Context collection for LLM analysis
+    try:
+        analysis_targets = collect_analysis_targets(target, project, all_findings)
+        targets_path = save_analysis_targets(analysis_targets, output_dir)
+        logger.info("Analysis targets saved: %s (%d LLM targets)",
+                     targets_path, len(analysis_targets.get("llm_analysis_targets", [])))
+        summary["middleware_coverage"] = analysis_targets.get("middleware_coverage", {})
+        summary["env_files"] = analysis_targets.get("env_files", [])
+    except Exception as e:
+        logger.debug("Context collection failed: %s", e)
 
     _write_tool_versions(output_dir, scan_results)
 

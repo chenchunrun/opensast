@@ -124,3 +124,112 @@ rules:
           $VAR = os.environ.get(...)
       - pattern-not: |
           $VAR = os.getenv(...)
+
+  - id: python.security.ssrf-requests
+    languages: [python]
+    severity: ERROR
+    message: "Detected requests call with user-controlled URL. Validate URLs against an allowlist to prevent SSRF."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: requests.get($URL)
+          - pattern: requests.post($URL, ...)
+          - pattern: requests.put($URL, ...)
+          - pattern: requests.delete($URL)
+          - pattern: requests.head($URL)
+          - pattern: $SESSION.get($URL)
+          - pattern: $SESSION.post($URL, ...)
+      - pattern-not: requests.get("...")
+      - pattern-not: requests.post("...", ...)
+
+  - id: python.security.path-traversal
+    languages: [python]
+    severity: ERROR
+    message: "Detected file operation with user-controlled path. Validate and sanitize paths to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: open($USER_INPUT, ...)
+          - pattern: os.path.join($BASE, $USER_INPUT)
+          - pattern: pathlib.Path($USER_INPUT)
+          - pattern: os.path.join($BASE, $USER_INPUT, ...)
+      - pattern-not: open("...", ...)
+      - pattern-not: os.path.join("...", "...")
+      - pattern-not: pathlib.Path("...")
+
+  - id: python.security.open-redirect
+    languages: [python]
+    severity: WARNING
+    message: "Detected redirect with user-controlled URL. Validate redirect targets against an allowlist."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-601"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: redirect($USER_INPUT)
+          - pattern: HttpResponseRedirect($USER_INPUT)
+      - pattern-not: redirect("...")
+      - pattern-not: HttpResponseRedirect("...")
+
+  - id: python.security.insecure-random
+    languages: [python]
+    severity: WARNING
+    message: "Detected random module used for security purposes. Use secrets module instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: random.randint(...)
+          - pattern: random.choice(...)
+          - pattern: random.random()
+          - pattern: random.uniform(...)
+      - pattern-not-inside: |
+          import random
+          ...
+          random.shuffle($LIST)
+
+  - id: python.security.timing-attack
+    languages: [python]
+    severity: WARNING
+    message: "Detected non-constant-time comparison of secrets. Use hmac.compare_digest() to prevent timing attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-208"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: $SECRET == $VAR
+          - pattern: $VAR == $SECRET
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: "(?i)(password|token|secret|key|api_key|auth)"
+      - pattern-not: hmac.compare_digest(...)

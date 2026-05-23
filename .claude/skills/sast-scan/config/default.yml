@@ -19,6 +19,13 @@ targets:
     - .tox
     - .mypy_cache
     - .pytest_cache
+    - .next
+    - .nuxt
+    - .turbo
+    - .cache
+    - coverage
+    - .ruff_cache
+    - .parcel-cache
 
 profiles:
   quick:

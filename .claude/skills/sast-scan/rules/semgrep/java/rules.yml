@@ -72,3 +72,76 @@ rules:
           $CTX.lookup($VAR)
       - pattern-not: |
           $CTX.lookup("...")
+
+  - id: java.security.ssrf-url-open
+    languages: [java]
+    severity: ERROR
+    message: "Detected URL connection with user-controlled URL. Validate URLs against an allowlist to prevent SSRF."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern: $URL.openConnection()
+      - pattern-not: |
+          new URL("...").openConnection()
+
+  - id: java.security.path-traversal-file
+    languages: [java]
+    severity: ERROR
+    message: "Detected file operation with user-controlled path. Validate paths to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: new FileInputStream($USER_INPUT)
+          - pattern: new FileOutputStream($USER_INPUT)
+          - pattern: new File($USER_INPUT)
+          - pattern: Paths.get($USER_INPUT)
+      - pattern-not: new File("...")
+      - pattern-not: Paths.get("...")
+
+  - id: java.security.xxe-xml-parser
+    languages: [java]
+    severity: ERROR
+    message: "Detected XML parser without entity processing disabled. Configure the parser to disallow external entities."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-611"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern: DocumentBuilderFactory.newInstance()
+      - pattern-not-inside: |
+          $DBF = DocumentBuilderFactory.newInstance();
+          ...
+          $DBF.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+
+  - id: java.security.insecure-random
+    languages: [java]
+    severity: WARNING
+    message: "Detected java.util.Random used for security purposes. Use SecureRandom instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern: new Random()
+      - pattern-not: new SecureRandom()
