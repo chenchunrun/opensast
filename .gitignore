@@ -1,6 +1,12 @@
 # Scan results
 .claude/sast/results*/
 
+# Scan history
+.claude/sast/history/
+
+# CodeQL cache
+.claude/sast/codeql-cache/
+
 # Baseline
 .claude/sast/baseline.json
 

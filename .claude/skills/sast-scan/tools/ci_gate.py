@@ -63,3 +63,53 @@ def evaluate_gate(
 
 def get_exit_code(gate_result: dict) -> int:
     return 1 if not gate_result.get("passed", True) else 0
+
+
+def check_trend_gate(
+    current_summary: dict,
+    current_findings: list[dict],
+    history_dir: str,
+    config: dict | None = None,
+) -> dict:
+    trend_config = (config or {}).get("gate", {}).get("trend", {})
+    if not trend_config.get("enabled", False):
+        return {"enabled": False, "trend": "disabled", "is_blocking": False}
+
+    from history import get_previous_scan, compare_scans
+    previous = get_previous_scan(history_dir)
+    if not previous:
+        return {"enabled": True, "trend": "no_history", "is_blocking": False, "message": "No previous scan to compare"}
+
+    comparison = compare_scans(current_summary, current_findings, previous)
+
+    max_new_high = trend_config.get("max_new_high", None)
+    max_regression_pct = trend_config.get("max_regression_pct", None)
+
+    blocking_reasons: list[str] = []
+
+    severity_delta = comparison.get("severity_delta", {})
+    if max_new_high is not None and severity_delta.get("high", 0) > max_new_high:
+        blocking_reasons.append(
+            f"New high findings: {severity_delta['high']} (max allowed: {max_new_high})"
+        )
+
+    if max_regression_pct is not None:
+        prev_total = previous.get("total_findings", 0)
+        if prev_total > 0:
+            pct_change = (comparison.get("total_delta", 0) / prev_total) * 100
+            if pct_change > max_regression_pct:
+                blocking_reasons.append(
+                    f"Regression: +{pct_change:.1f}% (max allowed: {max_regression_pct}%)"
+                )
+
+    is_blocking = len(blocking_reasons) > 0
+    comparison["enabled"] = True
+    comparison["is_blocking"] = is_blocking
+    comparison["blocking_reasons"] = blocking_reasons
+
+    if is_blocking:
+        logger.warning("Trend gate FAILED: %s", "; ".join(blocking_reasons))
+    else:
+        logger.info("Trend gate PASSED: direction=%s", comparison.get("direction"))
+
+    return comparison

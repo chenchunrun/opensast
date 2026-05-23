@@ -350,6 +350,29 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
             lines.append(f"| **{cwe}** | YES | {info['count']} |")
     lines.append("")
 
+    # Trend section
+    trend = summary.get("trend_analysis")
+    if trend and trend.get("daily_data"):
+        lines.extend([
+            "## Trend Analysis",
+            "",
+            f"**Direction:** {trend['direction']} ({trend['total_delta']:+d} findings)",
+        ])
+        if trend.get("mttr_days") is not None:
+            lines.append(f"**MTTR:** {trend['mttr_days']} days")
+        if trend.get("fixed_findings"):
+            lines.append(f"**Fixed:** {trend['fixed_findings']} | **New:** {trend['new_findings']}")
+        lines.extend(["",
+            "| Date | Total | Critical | High | Medium | Low |",
+            "|------|-------|----------|------|--------|-----|",
+        ])
+        for day in trend["daily_data"]:
+            lines.append(
+                f"| {day['date']} | {day['total']} | {day['critical']} "
+                f"| {day['high']} | {day['medium']} | {day['low']} |"
+            )
+        lines.append("")
+
     lines.append("## Findings by Category")
     lines.append("")
     for cat, cat_findings in sorted(by_category.items()):

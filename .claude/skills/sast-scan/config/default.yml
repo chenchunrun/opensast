@@ -65,9 +65,29 @@ report:
     - sarif
   output_dir: .claude/sast/results
 
+finding_filters:
+  test_code:
+    enabled: true
+    severity_reduction: one_level
+  generated_code:
+    enabled: true
+    action: suppress
+  reachability:
+    enabled: false
+
 baseline:
   enabled: true
   file: .claude/sast/baseline.json
+
+history:
+  enabled: true
+  retention_days: 90
+
+gate:
+  trend:
+    enabled: false
+    max_new_high: 0
+    max_regression_pct: 10
 
 rules:
   semgrep:

@@ -13,8 +13,11 @@ import yaml
 sys.path.insert(0, os.path.dirname(__file__))
 
 from baseline import filter_new_findings, load_baseline, save_baseline
-from ci_gate import evaluate_gate, get_exit_code
+from ci_gate import check_trend_gate, evaluate_gate, get_exit_code
 from detect_project import detect_project
+from finding_filters import apply_finding_filters
+from github_integration import post_pr_comment
+from history import compare_scans, get_previous_scan, load_scan_history, save_scan_result
 from normalize_findings import (
     NORMALIZERS,
     deduplicate_findings,
@@ -250,6 +253,10 @@ def run(args: argparse.Namespace) -> int:
 
     baseline_path = args.baseline or config.get("baseline", {}).get("file", ".claude/sast/baseline.json")
     baseline_enabled = config.get("baseline", {}).get("enabled", True)
+
+    logger.info("Applying finding filters...")
+    all_findings = apply_finding_filters(all_findings, target, config)
+
     baseline_data = {}
     if baseline_enabled:
         baseline_data = load_baseline(baseline_path)
@@ -290,6 +297,14 @@ def run(args: argparse.Namespace) -> int:
         "tool_errors": tool_errors,
     }
 
+    # Trend analysis
+    if profile_name in ("standard", "deep") and config.get("history", {}).get("enabled", True):
+        history_dir = os.path.join(os.path.dirname(output_dir), "history")
+        scan_history = load_scan_history(history_dir, limit=30)
+        if len(scan_history) >= 2:
+            from trend_analysis import compute_trend_metrics
+            summary["trend_analysis"] = compute_trend_metrics(scan_history)
+
     logger.info("Generating reports...")
     try:
         if "html" in formats or "all" in formats:
@@ -326,6 +341,30 @@ def run(args: argparse.Namespace) -> int:
 
     _write_tool_versions(output_dir, scan_results)
 
+    # Save scan history
+    try:
+        scan_id = save_scan_result(summary, all_findings, output_dir)
+        logger.info("Scan history saved: %s", scan_id)
+    except Exception as e:
+        logger.debug("Failed to save scan history: %s", e)
+
+    # Trend gate
+    trend_config = config.get("gate", {}).get("trend", {})
+    if trend_config.get("enabled", False):
+        history_dir = os.path.join(os.path.dirname(output_dir), "history")
+        trend_result = check_trend_gate(summary, all_findings, history_dir, config)
+        summary["trend_gate"] = trend_result
+        if trend_result.get("is_blocking"):
+            logger.warning("Trend gate BLOCKING: %s", "; ".join(trend_result.get("blocking_reasons", [])))
+            gate_result["passed"] = False
+
+    # PR comment
+    if args.pr_comment:
+        try:
+            post_pr_comment(summary, all_findings)
+        except Exception as e:
+            logger.debug("PR comment failed: %s", e)
+
     logger.info("Scan complete in %ss — %d total, %d new, %d blocking", elapsed, len(all_findings), new_count, blocking_count)
 
     exit_code = get_exit_code(gate_result)
@@ -360,6 +399,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--baseline", help="Baseline file path")
     parser.add_argument("--config", help="Config file path")
     parser.add_argument("--tool-timeout", type=int, help="Per-tool timeout in seconds")
+    parser.add_argument("--pr-comment", action="store_true", help="Post results as GitHub PR comment")
     return parser.parse_args(argv)
 
 
