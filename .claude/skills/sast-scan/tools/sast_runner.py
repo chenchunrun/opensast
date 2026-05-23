@@ -22,7 +22,7 @@ from normalize_findings import (
     normalize_semgrep,
 )
 from redact import redact_findings, redact_markdown, redact_sarif
-from report_writer import generate_claude_summary, generate_json_summary, generate_markdown_report
+from report_writer import generate_claude_summary, generate_html_report, generate_json_summary, generate_markdown_report
 from run_bandit import run_bandit
 from run_checkov import run_checkov
 from run_codeql import run_codeql
@@ -279,6 +279,11 @@ def run(args: argparse.Namespace) -> int:
 
     logger.info("Generating reports...")
     try:
+        if "html" in formats or "all" in formats:
+            html_path = os.path.join(output_dir, "report.html")
+            generate_html_report(summary, all_findings, html_path)
+            logger.info("HTML report: %s", html_path)
+
         if "markdown" in formats or "all" in formats:
             md_path = os.path.join(output_dir, "report.md")
             generate_markdown_report(summary, all_findings, md_path)

@@ -1,5 +1,5 @@
 # Scan results
-.claude/sast/results/
+.claude/sast/results*/
 
 # Baseline
 .claude/sast/baseline.json

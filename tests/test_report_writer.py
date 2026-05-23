@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "ski
 
 from report_writer import (
     generate_claude_summary,
+    generate_html_report,
     generate_json_summary,
     generate_markdown_report,
 )
@@ -78,7 +79,7 @@ def test_generate_markdown_report():
         assert "# SAST Scan Report" in content
         assert "SQL Injection" in content
         assert "Hardcoded password" in content
-        assert "CI Gate Result" in content
+        assert "CI Gate" in content
         assert "FAIL" in content
 
 
@@ -124,3 +125,79 @@ def test_generate_markdown_with_tool_errors():
         content = generate_markdown_report(summary, [], path)
         assert "Tool Errors" in content
         assert "gitleaks" in content
+
+
+def test_risk_score():
+    from report_writer import compute_risk_score
+    findings = [
+        {"severity": "critical", "confidence": "high", "is_suppressed": False},
+    ]
+    score, grade = compute_risk_score(findings)
+    assert score < 90
+    assert grade in ("B", "C", "D", "F")
+
+    score2, grade2 = compute_risk_score([])
+    assert score2 == 100
+    assert grade2 == "A+"
+
+    findings_low = [{"severity": "info", "confidence": "low", "is_suppressed": False}]
+    score3, grade3 = compute_risk_score(findings_low)
+    assert score3 >= 95
+    assert grade3 == "A+"
+
+    findings_suppressed = [{"severity": "critical", "confidence": "high", "is_suppressed": True}]
+    score4, grade4 = compute_risk_score(findings_suppressed)
+    assert score4 == 100
+    assert grade4 == "A+"
+
+
+def test_compliance_mapping():
+    from report_writer import compute_compliance_mapping
+    findings = [
+        {"cwe": ["CWE-78"], "is_suppressed": False},
+        {"cwe": ["CWE-89"], "is_suppressed": False},
+    ]
+    result = compute_compliance_mapping(findings)
+    assert "owasp_top_10" in result
+    assert "cwe_top_25" in result
+    assert result["cwe_top_25"]["CWE-78"]["hit"] is True
+    assert result["cwe_top_25"]["CWE-79"]["hit"] is False
+
+
+def test_group_findings_by():
+    from report_writer import group_findings_by
+    findings = [
+        {"file": "src/a.py", "severity": "high", "cwe": ["CWE-78"], "tool": "semgrep"},
+        {"file": "src/b.py", "severity": "medium", "cwe": ["CWE-89"], "tool": "semgrep"},
+    ]
+    by_sev = group_findings_by(findings, "severity")
+    assert "HIGH" in by_sev
+    assert "MEDIUM" in by_sev
+
+    by_file = group_findings_by(findings, "file")
+    assert "src" in by_file
+
+
+def test_generate_html_report():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "report.html")
+        content = generate_html_report(_make_summary(), _make_findings(), path)
+        assert os.path.isfile(path)
+        assert "<!DOCTYPE html>" in content
+        assert "Executive Summary" in content
+        assert "Risk Grade" in content
+        assert "OWASP Top 10" in content
+        assert "CWE Top 25" in content
+        assert "SQL Injection" in content
+        assert "Remediation Priority" in content
+
+
+def test_markdown_has_compliance_section():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "report.md")
+        content = generate_markdown_report(_make_summary(), _make_findings(), path)
+        assert "OWASP Top 10 Compliance" in content
+        assert "CWE Top 25" in content
+        assert "Risk Grade" in content
+        assert "Findings by Category" in content
+        assert "Remediation Priority" in content
