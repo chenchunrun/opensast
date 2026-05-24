@@ -80,8 +80,9 @@ def filter_new_findings(findings: list[dict], baseline: dict) -> list[dict]:
         entry = dict(f)
         entry["is_new"] = not is_known
 
-        entry["is_suppressed"] = False
-        entry["suppression_reason"] = None
+        if not entry.get("is_suppressed"):
+            entry["is_suppressed"] = False
+            entry["suppression_reason"] = None
         check_fp = fp if fp in suppressed_fps else fp_v1 if fp_v1 in suppressed_fps else ""
         if check_fp:
             if is_suppressed({"fingerprint": check_fp}, baseline):

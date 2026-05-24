@@ -1,0 +1,70 @@
+rules:
+  # GB/T 35273 — Personal Information Security Rules
+
+  - id: gbt35273.personal-data-plaintext-storage
+    languages: [python]
+    severity: WARNING
+    message: "Personal data stored in plaintext. Encrypt personal information at rest per GB/T 35273 5.4."
+    metadata:
+      category: compliance
+      cwe:
+        - "CWE-312"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [python]
+      compliance: ["GB/T 35273-2020 5.4"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.insert({..., "id_card": $VAR, ...})
+          - pattern: |
+              $DB.insert({..., "phone": $VAR, ...})
+          - pattern: |
+              $DB.insert({..., "email": $VAR, ...})
+          - pattern: |
+              $DB.save({"phone_number": ...})
+
+  - id: gbt35273.personal-data-unencrypted-transit
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Personal data sent over potentially insecure channel. Use HTTPS per GB/T 35273 5.5."
+    metadata:
+      category: compliance
+      cwe:
+        - "CWE-319"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [javascript, typescript]
+      compliance: ["GB/T 35273-2020 5.5"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              fetch("http://...", {body: JSON.stringify({email: ...})})
+          - pattern: |
+              axios.post("http://...", {id_card: ...})
+
+  - id: gbt35273.logging-personal-data
+    languages: [python, javascript, typescript, java]
+    severity: WARNING
+    message: "Personal data logged to files. Avoid logging PII per GB/T 35273 10.1."
+    metadata:
+      category: compliance
+      cwe:
+        - "CWE-532"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [python, javascript, typescript, java, go]
+      compliance: ["GB/T 35273-2020 10.1"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LOGGER.info(..., email=..., ...)
+          - pattern: |
+              $LOGGER.info(..., phone=..., ...)
+          - pattern: |
+              $LOGGER.info(..., id_card=..., ...)
+          - pattern: |
+              logging.info(..., email=..., ...)

@@ -60,6 +60,8 @@ rules:
       category: security
       cwe:
         - "CWE-20"
+      owasp:
+        - "A03:2021-Injection"
       confidence: LOW
       technology: [nextjs, javascript, typescript]
     patterns:

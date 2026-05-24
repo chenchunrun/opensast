@@ -1,0 +1,330 @@
+rules:
+  - id: cpp.security.buffer-overflow-gets
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected gets() which is always unsafe. Use fgets() with buffer size limit instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-120"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [c, cpp]
+    pattern: gets(...)
+
+  - id: cpp.security.buffer-overflow-scanf
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected scanf with %s without width limit. Use scanf(\"%99s\", ...) with explicit width."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-120"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [c, cpp]
+    patterns:
+      - pattern: scanf("%s", ...)
+      - pattern-not: scanf("%...s", ...)
+
+  - id: cpp.security.buffer-overflow-sprintf
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected sprintf() without bounds check. Use snprintf() with buffer size instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-120"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [c, cpp]
+    patterns:
+      - pattern: sprintf(...)
+      - pattern-not: snprintf(...)
+
+  - id: cpp.security.buffer-overflow-strcpy
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected strcpy() without bounds check. Use strncpy() or strlcpy() with size limit."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-120"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [c, cpp]
+    pattern: strcpy(...)
+
+  - id: cpp.security.buffer-overflow-strcat
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected strcat() without bounds check. Use strncat() with size limit."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-120"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [c, cpp]
+    pattern: strcat(...)
+
+  - id: cpp.security.out-of-bounds-read
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Potential out-of-bounds array access. Validate index before access."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-125"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    patterns:
+      - pattern: $ARR[$INDEX]
+      - pattern-not-inside: |
+          if ($INDEX < $SIZE) { ... }
+      - pattern-not-inside: |
+          if ($INDEX >= 0 && $INDEX < ...) { ... }
+
+  - id: cpp.security.format-string
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected printf/fprintf with user-controlled format string. Use a fixed format string."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-134"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [c, cpp]
+    patterns:
+      - pattern-either:
+          - pattern: printf($USER_INPUT)
+          - pattern: fprintf($FP, $USER_INPUT)
+          - pattern: sprintf($BUF, $USER_INPUT)
+      - pattern-not: printf("...")
+      - pattern-not: fprintf($FP, "...")
+
+  - id: cpp.security.command-injection-system
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected system/popen with user-controlled argument. Use execvp with array arguments."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [c, cpp]
+    patterns:
+      - pattern-either:
+          - pattern: system($VAR)
+          - pattern: popen($VAR, ...)
+      - pattern-not: system("...")
+
+  - id: cpp.security.sql-injection-sprintf
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Detected SQL query built with sprintf. Use parameterized queries."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [c, cpp]
+    patterns:
+      - pattern: sprintf($BUF, "SELECT ...%s...", $VAR)
+      - pattern-not: sprintf($BUF, "...")
+
+  - id: cpp.security.integer-overflow-malloc
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected malloc with multiplication that may overflow. Check for integer overflow first."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-190"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    patterns:
+      - pattern: malloc($X * $Y)
+      - pattern-not-inside: |
+          if ($X > SIZE_MAX / $Y) { ... }
+
+  - id: cpp.security.use-after-free
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Potential use-after-free. Set pointer to NULL after free()."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-416"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    pattern: free($PTR);
+
+  - id: cpp.security.double-free
+    languages: [c, cpp]
+    severity: ERROR
+    message: "Potential double-free detected. Set pointer to NULL after free()."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-415"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    patterns:
+      - pattern: |
+          free($PTR);
+          ...
+          free($PTR);
+
+  - id: cpp.security.insecure-random-rand
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected rand() used for security purposes. Use a cryptographically secure RNG."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    pattern: rand()
+
+  - id: cpp.security.hardcoded-credentials
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected hardcoded credential. Use environment variables or config files."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [c, cpp]
+    patterns:
+      - pattern-either:
+          - pattern: password = "..."
+          - pattern: secret = "..."
+
+  - id: cpp.security.toctou-race
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected TOCTOU race condition: access() followed by open(). Use open() with O_CREAT|O_EXCL directly."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-367"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    pattern-either:
+      - pattern: access($PATH, ...)
+      - pattern: open($PATH, ...)
+
+  - id: cpp.security.tempfile-mktemp
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected mktemp() which is vulnerable to race conditions. Use mkstemp() instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-377"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [c, cpp]
+    pattern: mktemp(...)
+
+  - id: cpp.security.null-pointer-dereference
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Potential NULL pointer dereference. Check return value of malloc/calloc."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-476"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    patterns:
+      - pattern: |
+          $PTR = malloc(...)
+      - pattern-not-inside: |
+          if ($PTR == NULL) { ... }
+
+  - id: cpp.security.insecure-file-permission
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected overly permissive file permission. Use restrictive permissions (0600)."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-276"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    patterns:
+      - pattern-either:
+          - pattern: chmod(..., 0777)
+          - pattern: mkdir(..., 0777)
+          - pattern: open(..., ..., 0666)
+
+  - id: cpp.security.assert-in-production
+    languages: [c, cpp]
+    severity: WARNING
+    message: "Detected assert used for security check. Assertions are disabled with NDEBUG. Use explicit checks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-617"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [c, cpp]
+    patterns:
+      - pattern: assert(...)
+
+  - id: cpp.security.unchecked-return
+    languages: [c, cpp]
+    severity: INFO
+    message: "Unchecked return value of critical function. Check return value for errors."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-252"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: LOW
+      technology: [c, cpp]
+    patterns:
+      - pattern-either:
+          - pattern: malloc(...)
+          - pattern: realloc(...)
+          - pattern: calloc(...)
+      - pattern-not-inside: |
+          $PTR = malloc(...);
+          ...
+          if ($PTR == NULL) { ... }

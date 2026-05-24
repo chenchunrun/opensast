@@ -1,0 +1,393 @@
+rules:
+  - id: php.security.sql-injection-string-concat
+    languages: [php]
+    severity: ERROR
+    message: "Detected SQL query using string concatenation. Use parameterized queries with prepared statements instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CONN->query("..." . $VAR . "...")
+          - pattern: |
+              $CONN->query("..." . $VAR)
+          - pattern: |
+              mysqli_query($CONN, "..." . $VAR . "...")
+          - pattern: |
+              $CONN->exec("..." . $VAR . "...")
+      - pattern-not: |
+          $CONN->query("...")
+
+  - id: php.security.command-injection-exec
+    languages: [php]
+    severity: ERROR
+    message: "Detected command execution with variable argument. Use escapeshellarg() to sanitize input."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              exec($VAR)
+          - pattern: |
+              system($VAR)
+          - pattern: |
+              shell_exec($VAR)
+          - pattern: |
+              passthru($VAR)
+          - pattern: |
+              popen($VAR, ...)
+          - pattern: |
+              proc_open($VAR, ...)
+      - pattern-not: |
+          exec("...")
+      - pattern-not: |
+          system("...")
+      - pattern-not-inside: |
+          exec(escapeshellcmd(...))
+
+  - id: php.security.eval-usage
+    languages: [php]
+    severity: ERROR
+    message: "Detected eval() with non-literal argument. eval() can execute arbitrary code."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-94"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern: eval($VAR)
+      - pattern-not: eval("...")
+
+  - id: php.security.xss-echo-unescaped
+    languages: [php]
+    severity: WARNING
+    message: "Detected unescaped output. Use htmlspecialchars() to prevent XSS."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: print $VAR
+          - pattern: printf("..." . $VAR . "...")
+          - pattern: printf($VAR)
+      - pattern-not-inside: print htmlspecialchars(...)
+
+  - id: php.security.file-inclusion
+    languages: [php]
+    severity: ERROR
+    message: "Detected file inclusion with user-controlled path. Validate paths to prevent LFI/RFI."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-98"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: include($VAR)
+          - pattern: include_once($VAR)
+          - pattern: require($VAR)
+          - pattern: require_once($VAR)
+      - pattern-not: include("...")
+      - pattern-not: include_once("...")
+      - pattern-not: require("...")
+      - pattern-not: require_once("...")
+
+  - id: php.security.header-injection
+    languages: [php]
+    severity: WARNING
+    message: "Detected header() with user-controlled value. Sanitize to prevent header injection."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-113"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              header("Location: " . $VAR)
+          - pattern: |
+              header("..." . $VAR . "...")
+      - pattern-not: |
+          header("Location: ...")
+
+  - id: php.security.hardcoded-credentials
+    languages: [php]
+    severity: WARNING
+    message: "Detected hardcoded credential. Use environment variables or a secret manager."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $password = "..."
+          - pattern: |
+              $db_pass = "..."
+          - pattern: |
+              $secret = "..."
+          - pattern: |
+              $api_key = "..."
+      - pattern-not: |
+          $password = getenv(...)
+      - pattern-not: |
+          $password = $_ENV[...]
+
+  - id: php.security.insecure-cookie
+    languages: [php]
+    severity: WARNING
+    message: "Detected cookie without secure flag. Set secure=true for HTTPS-only cookies."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-614"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              setcookie(..., false, ...)
+          - pattern: |
+              setcookie($NAME, $VAL, 0, ...)
+
+  - id: php.security.session-fixation
+    languages: [php]
+    severity: WARNING
+    message: "Detected session_id() with user input. This enables session fixation attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-384"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern: session_id($VAR)
+      - pattern-not: session_id()
+
+  - id: php.security.weak-password-hash
+    languages: [php]
+    severity: ERROR
+    message: "Detected weak hash function for password hashing. Use password_hash() instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-916"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: md5($PASSWORD)
+          - pattern: sha1($PASSWORD)
+          - pattern: md5($PASS)
+          - pattern: sha1($PASS)
+      - pattern-not-inside: |
+          password_hash(...)
+
+  - id: php.security.weak-hash-md5
+    languages: [php]
+    severity: WARNING
+    message: "Detected MD5 hash usage. MD5 is cryptographically broken. Use hash('sha256') or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [php]
+    pattern: md5(...)
+
+  - id: php.security.weak-hash-sha1
+    languages: [php]
+    severity: WARNING
+    message: "Detected SHA-1 hash usage. SHA-1 is cryptographically weak. Use hash('sha256') or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [php]
+    pattern: sha1(...)
+
+  - id: php.security.insecure-random
+    languages: [php]
+    severity: WARNING
+    message: "Detected insecure random number generation. Use random_int() or random_bytes() for security."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: rand(...)
+          - pattern: mt_rand(...)
+
+  - id: php.security.path-traversal
+    languages: [php]
+    severity: ERROR
+    message: "Detected file operation with user-controlled path. Validate to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: fopen($USER_INPUT, ...)
+          - pattern: file_get_contents($USER_INPUT)
+          - pattern: file_put_contents($USER_INPUT, ...)
+          - pattern: readfile($USER_INPUT)
+      - pattern-not: fopen("...", ...)
+      - pattern-not: file_get_contents("...")
+
+  - id: php.security.unserialize-unsafe
+    languages: [php]
+    severity: ERROR
+    message: "Detected unserialize() with user input. This can lead to object injection and RCE."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-502"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern: unserialize($VAR)
+      - pattern-not: unserialize("...")
+
+  - id: php.security.ssrf-file-get-contents
+    languages: [php]
+    severity: ERROR
+    message: "Detected file_get_contents with user-controlled URL. Validate URLs to prevent SSRF."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: file_get_contents($URL)
+          - pattern: curl_exec($CH)
+      - pattern-not: file_get_contents("...")
+
+  - id: php.security.debug-enabled
+    languages: [php]
+    severity: WARNING
+    message: "Debug mode enabled in production. Set display_errors = Off and use error_reporting for production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [php]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              display_errors = On
+          - pattern: |
+              display_errors = 1
+          - pattern: |
+              ini_set('display_errors', '1')
+          - pattern: |
+              ini_set('display_errors', true)
+
+  - id: php.security.laravel-debug-mode
+    languages: [php]
+    severity: WARNING
+    message: "Laravel debug mode enabled. Set APP_DEBUG=false in production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [php, laravel]
+    pattern: |
+        APP_DEBUG=true
+
+  - id: php.security.laravel-csrf-disabled
+    languages: [php]
+    severity: WARNING
+    message: "CSRF protection disabled for all routes. Remove wildcard from VerifyCsrfToken except array."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-352"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: HIGH
+      technology: [php, laravel]
+    pattern: $except = [...]
+
+  - id: php.security.laravel-mass-assignment
+    languages: [php]
+    severity: WARNING
+    message: "Mass assignment with unfiltered request input. Use $request->only(...) or $request->validate()."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-915"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: MEDIUM
+      technology: [php, laravel]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $MODEL::create($REQ->all())
+          - pattern: |
+              $MODEL::update($REQ->all())
+      - pattern-not: |
+          $MODEL::create($REQ->only(...))

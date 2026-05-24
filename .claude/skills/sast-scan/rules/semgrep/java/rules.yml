@@ -145,3 +145,339 @@ rules:
     patterns:
       - pattern: new Random()
       - pattern-not: new SecureRandom()
+
+  - id: java.security.spring-csrf-disabled
+    languages: [java]
+    severity: WARNING
+    message: "Spring Security CSRF protection disabled. Enable CSRF protection for all state-changing requests."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-352"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: HIGH
+      technology: [java, spring]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $HTTP.csrf().disable()
+          - pattern: |
+              $HTTP.csrf($CONF -> $CONF.disable())
+
+  - id: java.security.spring-cors-wildcard
+    languages: [java]
+    severity: WARNING
+    message: "Spring CORS configured with wildcard origin. Restrict to specific domains."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-942"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [java, spring]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $REGISTRY.allowedOrigins("*")
+          - pattern: |
+              $CONFIG.allowedOrigins("*")
+
+  - id: java.security.spring-permit-all
+    languages: [java]
+    severity: WARNING
+    message: "Spring Security endpoint permits all access without authentication. Restrict access with proper roles."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-284"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: HIGH
+      technology: [java, spring]
+    patterns:
+      - pattern: |
+          $AUTH.permitAll()
+
+  - id: java.security.spring-actuator-exposed
+    languages: [generic]
+    severity: WARNING
+    message: "Spring Actuator endpoints exposed with wildcard. Restrict to necessary endpoints only."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-200"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [java, spring]
+    pattern: 'management.endpoints.web.exposure.include: "*"'
+
+  - id: java.security.weak-hash-md5
+    languages: [java]
+    severity: WARNING
+    message: "Detected MD5 hash usage. MD5 is cryptographically broken. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: MessageDigest.getInstance("MD5")
+          - pattern: MessageDigest.getInstance("md5")
+
+  - id: java.security.weak-hash-sha1
+    languages: [java]
+    severity: WARNING
+    message: "Detected SHA-1 hash usage. SHA-1 is cryptographically weak. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: MessageDigest.getInstance("SHA-1")
+          - pattern: MessageDigest.getInstance("SHA1")
+          - pattern: MessageDigest.getInstance("sha1")
+
+  - id: java.security.insecure-ssl-trustall
+    languages: [java]
+    severity: ERROR
+    message: "Detected SSL context trusting all certificates. This disables TLS verification. Use proper certificate validation."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              public void checkClientTrusted(...) { }
+          - pattern: |
+              public void checkServerTrusted(...) { }
+          - pattern: |
+              public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+
+  - id: java.security.deserialization-objectinput
+    languages: [java]
+    severity: ERROR
+    message: "Detected ObjectInputStream.readObject() without deserialization filter. Use ObjectInputFilter to prevent deserialization attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-502"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: HIGH
+      technology: [java]
+    pattern: $OIS.readObject()
+
+  - id: java.security.el-injection
+    languages: [java]
+    severity: ERROR
+    message: "Detected EL expression evaluation with user input. This can lead to remote code execution."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-94"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $FAC.createValueExpression($USER_INPUT, ...)
+          - pattern: |
+              $EXPR.getValue($CONTEXT)
+      - pattern-not: |
+          $FAC.createValueExpression("...", ...)
+
+  - id: java.security.template-injection
+    languages: [java]
+    severity: ERROR
+    message: "Detected template engine processing user input directly. Use sandboxed templates or validate input."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-94"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $TMPL.process($USER_INPUT, ...)
+          - pattern: |
+              $VEL.evaluate($CONTEXT, $WRITER, "...", $USER_INPUT)
+      - pattern-not: |
+          $TMPL.process("...", ...)
+
+  - id: java.security.ldap-injection
+    languages: [java]
+    severity: ERROR
+    message: "Detected LDAP search with concatenated filter. Use parameterized LDAP queries to prevent injection."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-90"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CTX.search("..." + $VAR + "...", ...)
+          - pattern: |
+              $CTX.search($BASE, "..." + $VAR + "...", ...)
+      - pattern-not: |
+          $CTX.search("...", ...)
+
+  - id: java.security.log-injection
+    languages: [java]
+    severity: WARNING
+    message: "Detected user input directly in log message without sanitization. Sanitize or encode input to prevent log injection."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-117"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LOG.info($REQ.getParameter(...))
+          - pattern: |
+              $LOG.debug($REQ.getParameter(...))
+          - pattern: |
+              $LOG.warn($REQ.getParameter(...))
+          - pattern: |
+              $LOG.error($REQ.getParameter(...))
+
+  - id: java.security.multipart-upload
+    languages: [java]
+    severity: WARNING
+    message: "Detected file upload without type/size validation. Validate uploaded file types and sizes."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-434"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [java, spring]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $REQ.getFile(...)
+          - pattern: |
+              $REQ.getFiles(...)
+          - pattern: |
+              @RequestParam MultipartFile $VAR
+      - pattern-not-inside: |
+          if ($FILE.getSize() > ...) { ... }
+
+  - id: java.security.hardcoded-jdbc-password
+    languages: [java]
+    severity: WARNING
+    message: "Detected hardcoded JDBC credentials. Use environment variables or a secret manager."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              DriverManager.getConnection($URL, "...", "...")
+          - pattern: |
+              $DS.setPassword("...")
+
+  - id: java.security.thread-safety-servlet
+    languages: [java]
+    severity: WARNING
+    message: "Detected instance variable in Servlet class. Servlets are shared across threads. Use local variables or thread-safe storage."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-362"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern-inside: |
+          class $SERVLET extends HttpServlet { ... }
+      - pattern: $VAR = ...
+
+  - id: java.security.tempfile-insecure
+    languages: [java]
+    severity: WARNING
+    message: "Detected File.createTempFile with predictable prefix. Use secure random prefix or set proper delete-on-exit."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-377"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern: |
+          File.createTempFile("...", "...")
+
+  - id: java.security.runtime-exec-shell
+    languages: [java]
+    severity: ERROR
+    message: "Detected ProcessBuilder with shell metacharacter interpretation. Avoid shell execution with user input."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              new ProcessBuilder("sh", "-c", $VAR)
+          - pattern: |
+              new ProcessBuilder("bash", "-c", $VAR)
+          - pattern: |
+              new ProcessBuilder("/bin/sh", "-c", $VAR)
+          - pattern: |
+              new ProcessBuilder("cmd", "/c", $VAR)
+
+  - id: java.security.spring-debug-mode
+    languages: [yaml]
+    severity: WARNING
+    message: "Spring JPA show-sql enabled in configuration. Disable in production to prevent information leakage."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [java, spring]
+    pattern: 'spring.jpa.show-sql: true'

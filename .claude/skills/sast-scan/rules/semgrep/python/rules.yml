@@ -233,3 +233,366 @@ rules:
           metavariable: $SECRET
           regex: "(?i)(password|token|secret|key|api_key|auth)"
       - pattern-not: hmac.compare_digest(...)
+
+  - id: python.security.flask-debug
+    languages: [python]
+    severity: WARNING
+    message: "Flask debug mode enabled. Do not run with debug=True in production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [python, flask]
+    patterns:
+      - pattern: app.run(..., debug=True, ...)
+
+  - id: python.security.django-debug
+    languages: [python]
+    severity: WARNING
+    message: "Django DEBUG mode enabled. Set DEBUG = False in production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [python, django]
+    patterns:
+      - pattern: |
+          DEBUG = True
+
+  - id: python.security.csrf-disabled-django
+    languages: [python]
+    severity: WARNING
+    message: "CSRF protection disabled via @csrf_exempt. Remove this decorator unless absolutely necessary."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-352"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: HIGH
+      technology: [python, django]
+    pattern: "@csrf_exempt"
+
+  - id: python.security.insecure-cookie-django
+    languages: [python]
+    severity: WARNING
+    message: "Django session cookie not marked as secure. Set SESSION_COOKIE_SECURE = True for HTTPS."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-614"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [python, django]
+    patterns:
+      - pattern: |
+          SESSION_COOKIE_SECURE = False
+
+  - id: python.security.weak-hash-md5
+    languages: [python]
+    severity: WARNING
+    message: "Detected MD5 hash usage. MD5 is cryptographically broken. Use hashlib.sha256() or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: MD5.new(...)
+
+  - id: python.security.weak-hash-sha1
+    languages: [python]
+    severity: WARNING
+    message: "Detected SHA1 hash usage. SHA1 is cryptographically weak. Use hashlib.sha256() or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.sha1(...)
+          - pattern: SHA.new(...)
+
+  - id: python.security.insecure-ssl-no-verify
+    languages: [python]
+    severity: ERROR
+    message: "SSL certificate verification disabled. Remove verify=False to validate TLS certificates."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [python]
+    patterns:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+      - pattern-not: requests.$METHOD(..., verify=True, ...)
+
+  - id: python.security.template-injection
+    languages: [python]
+    severity: ERROR
+    message: "Detected user input in template string. Use sandboxed templates or autoescape to prevent SSTI."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-94"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Template($USER_INPUT)
+          - pattern: |
+              Environment(..., autoescape=False)
+      - pattern-not: |
+          Template("...")
+
+  - id: python.security.nosql-injection
+    languages: [python]
+    severity: ERROR
+    message: "Detected MongoDB $where with potentially unsafe input. Use approved filter patterns instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [python, mongodb]
+    patterns:
+      - pattern: |
+          {"$where": $VAR}
+      - pattern-not: |
+          {"$where": "..."}
+
+  - id: python.security.xml-external-entity
+    languages: [python]
+    severity: ERROR
+    message: "Detected XML parsing without defusedxml. Use defusedxml to prevent XXE attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-611"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: xml.dom.minidom.parseString(...)
+          - pattern: xml.etree.ElementTree.parse(...)
+          - pattern: xml.sax.parse(...)
+      - pattern-not: |
+          defusedxml.$PARSER.parse(...)
+
+  - id: python.security.tempfile-insecure
+    languages: [python]
+    severity: WARNING
+    message: "Detected tempfile.mktemp() which is vulnerable to race conditions. Use tempfile.mkstemp() instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-377"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: HIGH
+      technology: [python]
+    pattern: tempfile.mktemp(...)
+
+  - id: python.security.logging-sensitive-data
+    languages: [python]
+    severity: WARNING
+    message: "Detected potentially sensitive data passed to logger. Avoid logging passwords, tokens, or personal data."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-532"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $LOGGER.info(..., password=..., ...)
+          - pattern: |
+              $LOGGER.info(..., token=..., ...)
+          - pattern: |
+              $LOGGER.info(..., secret=..., ...)
+          - pattern: |
+              $LOGGER.debug(password)
+          - pattern: |
+              $LOGGER.debug(token)
+
+  - id: python.security.assert-in-production
+    languages: [python]
+    severity: WARNING
+    message: "Detected assert used for security check. Assertions are removed with -O flag. Use explicit if/raise instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-617"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern: |
+          assert $COND, ...
+
+  - id: python.security.ldap-injection
+    languages: [python]
+    severity: ERROR
+    message: "Detected LDAP query with string concatenation. Use parameterized LDAP queries to prevent injection."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-90"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CONN.search_s("..." + $VAR + "...", ...)
+          - pattern: |
+              $CONN.search("..." + $VAR + "...", ...)
+      - pattern-not: |
+          $CONN.search_s("...", ...)
+
+  - id: python.security.des-usage
+    languages: [python]
+    severity: ERROR
+    message: "Detected DES cipher usage. DES is insecure and trivially breakable. Use AES with GCM mode instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-326"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: DES.new(...)
+          - pattern: |
+              from Crypto.Cipher import DES
+          - pattern: |
+              from Cryptodome.Cipher import DES
+
+  - id: python.security.http-only-sensitive-query
+    languages: [python]
+    severity: WARNING
+    message: "Detected sensitive data in URL query parameters. Send credentials in request body or headers instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-598"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: MEDIUM
+      technology: [python]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              requests.get($URL, params={"password": ...})
+          - pattern: |
+              requests.get($URL, params={"token": ...})
+          - pattern: |
+              requests.get($URL, params={"secret": ...})
+          - pattern: |
+              requests.post($URL, ..., params={"password": ...})
+
+  - id: python.security.exception-broad
+    languages: [python]
+    severity: INFO
+    message: "Detected bare except clause. This can catch and hide security-relevant exceptions. Use specific exception types."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-396"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: LOW
+      technology: [python]
+    patterns:
+      - pattern-inside: |
+          try:
+              ...
+          except:
+              ...
+      - pattern: |
+          except:
+              ...
+
+  - id: python.security.hardcoded-password-django
+    languages: [python]
+    severity: WARNING
+    message: "Detected hardcoded password in Django settings. Use environment variables or a secret manager."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [python, django]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              PASSWORD = "..."
+          - pattern: |
+              SECRET_KEY = "..."
+          - pattern: |
+              DATABASES = {..., "PASSWORD": "...", ...}
+      - pattern-not: |
+          PASSWORD = os.environ.get(...)
+      - pattern-not: |
+          SECRET_KEY = os.environ.get(...)
+      - pattern-not: |
+          SECRET_KEY = os.getenv(...)
+
+  - id: python.security.flask-secret-key-weak
+    languages: [python]
+    severity: ERROR
+    message: "Detected Flask secret key set to a hardcoded short value. Use a strong random secret from environment variables."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [python, flask]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              app.secret_key = "..."
+          - pattern: |
+              app.config["SECRET_KEY"] = "..."
+          - pattern: |
+              SECRET_KEY = "..."
+      - pattern-not: |
+          app.secret_key = os.environ.get(...)
+      - pattern-not: |
+          app.config["SECRET_KEY"] = os.environ.get(...)

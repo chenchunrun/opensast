@@ -14,8 +14,9 @@ TEST_PATH_PATTERN = re.compile(
 )
 
 GENERATED_PATH_PATTERN = re.compile(
-    r"(?:^|/)(?:vendor|node_modules|dist|build|\.next|\.nuxt|out)(?:/|$)|"
-    r"(?:\.generated\.|\.pb\.go|\.pb\.rs|_gen\.|\.min\.js|\.min\.css|\.bundle\.)"
+    r"(?:^|/)(?:vendor|node_modules|dist|build|\.next|\.nuxt|out|\.gomodcache|\.cache)(?:/|$)|"
+    r"(?:\.generated\.|\.pb\.go|\.pb\.rs|_gen\.|\.min\.js|\.min\.css|\.bundle\.)|"
+    r"(?:^|/)(?:testdata|testfixtures|test-harness|fixture)(?:/|$)"
 )
 
 GENERATED_COMMENT_PATTERNS = [
@@ -80,6 +81,246 @@ def is_generated_file_content(file_path: str, project_root: str) -> bool:
     except OSError:
         return False
     return any(p.search(head) for p in GENERATED_COMMENT_PATTERNS)
+
+
+ENTRY_POINT_FILE_PATTERN = re.compile(
+    r"(?:route|controller|handler|api|router|endpoint|view)",
+    re.IGNORECASE,
+)
+
+SECURITY_RELEVANT_VARS = re.compile(
+    r"(?:password|token|secret|apiKey|api_key|userid|user_id|auth|credential|private_key|access_key)",
+    re.IGNORECASE,
+)
+
+CWE_TOP_25 = frozenset({
+    "CWE-89", "CWE-79", "CWE-78", "CWE-20", "CWE-22",
+    "CWE-352", "CWE-434", "CWE-502", "CWE-287", "CWE-798",
+    "CWE-918", "CWE-94", "CWE-862", "CWE-284", "CWE-190",
+    "CWE-476", "CWE-732", "CWE-639", "CWE-276", "CWE-327",
+    "CWE-252", "CWE-400", "CWE-312", "CWE-532", "CWE-208",
+})
+
+HIGH_PRECISION_TOOLS = frozenset({"gitleaks", "codeql"})
+
+NOISE_BUDGET_DEFAULTS: dict[str, int] = {
+    "critical": 0,
+    "high": 0,
+    "max_medium_per_cwe": 20,
+    "max_low_per_cwe": 10,
+    "max_info_per_cwe": 5,
+}
+
+
+def _extract_first_cwe(finding: dict) -> str:
+    """Return the first CWE identifier from a finding, or empty string."""
+    cwes = finding.get("cwe", [])
+    if isinstance(cwes, list) and cwes:
+        candidate = cwes[0]
+    elif isinstance(cwes, str) and cwes:
+        candidate = cwes.split(",")[0].strip()
+    else:
+        return ""
+    if not candidate.startswith("CWE-"):
+        candidate = f"CWE-{candidate}"
+    return candidate
+
+
+def _severity_rank(severity: str) -> int:
+    """Return numeric rank for severity (higher = more severe)."""
+    try:
+        return len(SEVERITY_LEVELS) - SEVERITY_LEVELS.index(severity)
+    except ValueError:
+        return 0
+
+
+def compute_confidence_score(
+    finding: dict, project_root: str, file_cache: dict | None = None,
+) -> float:
+    """Multi-signal confidence scoring returning a value in [0.0, 1.0]."""
+    score = 0.5
+    signals = 0
+
+    file_path = finding.get("file", "").replace("\\", "/")
+
+    # Signal: entry point file
+    if file_path and ENTRY_POINT_FILE_PATTERN.search(file_path):
+        score += 0.20
+        signals += 1
+
+    # Signal: security-relevant variable names
+    code_snippet = finding.get("code", "") or finding.get("message", "") or ""
+    if SECURITY_RELEVANT_VARS.search(code_snippet):
+        score += 0.10
+        signals += 1
+
+    # Signal: dataflow evidence
+    evidence = finding.get("evidence", {})
+    if isinstance(evidence, dict) and evidence.get("source") and evidence.get("sink"):
+        score += 0.20
+        signals += 1
+
+    # Signal: high-precision tool
+    tool = finding.get("tool", "")
+    if tool in HIGH_PRECISION_TOOLS:
+        score += 0.15
+        signals += 1
+
+    # Signal: CWE Top 25
+    first_cwe = _extract_first_cwe(finding)
+    if first_cwe and first_cwe in CWE_TOP_25:
+        score += 0.10
+        signals += 1
+
+    # Negative signal: generated file
+    if file_path and is_generated_code(file_path):
+        score -= 0.30
+        signals += 1
+
+    return max(0.0, min(1.0, score))
+
+
+def deduplicate_by_similarity(
+    findings: list[dict], threshold: float = 0.8,
+) -> list[dict]:
+    """Group findings that describe the same issue and keep the best one."""
+    if not findings:
+        return findings
+
+    kept: list[dict] = []
+    used: set[int] = set()
+
+    for i, finding_a in enumerate(findings):
+        if i in used:
+            continue
+
+        best = finding_a
+        best_idx = i
+
+        for j in range(i + 1, len(findings)):
+            if j in used:
+                continue
+            finding_b = findings[j]
+
+            # Same file
+            if finding_a.get("file", "") != finding_b.get("file", ""):
+                continue
+
+            # Overlapping line range (within 5 lines)
+            line_a = finding_a.get("start_line", 0)
+            line_b = finding_b.get("start_line", 0)
+            if abs(line_a - line_b) > 5:
+                continue
+
+            # Same CWE category
+            cwe_a = _extract_first_cwe(finding_a)
+            cwe_b = _extract_first_cwe(finding_b)
+            if cwe_a != cwe_b or not cwe_a:
+                continue
+
+            # These are duplicates — keep the one with higher severity or confidence
+            used.add(j)
+            rank_a = _severity_rank(best.get("severity", "info"))
+            rank_b = _severity_rank(finding_b.get("severity", "info"))
+            if rank_b > rank_a:
+                best = finding_b
+                best_idx = j
+            elif rank_b == rank_a:
+                conf_a = best.get("confidence_score", 0.5)
+                conf_b = finding_b.get("confidence_score", 0.5)
+                if conf_b > conf_a:
+                    best = finding_b
+                    best_idx = j
+
+        used.add(best_idx)
+        kept.append(best)
+
+    return kept
+
+
+def calibrate_severity(finding: dict, project_root: str) -> str:
+    """Context-aware severity calibration."""
+    current = finding.get("severity", "info")
+    file_path = finding.get("file", "").replace("\\", "/")
+
+    downgrade = 0
+
+    # Type definition files → downgrade by 2
+    type_def_pattern = re.compile(
+        r"(?:\.d\.ts|\.types\.ts|(?:^|/)interfaces/)",
+    )
+    if file_path and type_def_pattern.search(file_path):
+        downgrade += 2
+
+    # Low confidence → downgrade by 1
+    confidence = finding.get("confidence_score", 0.5)
+    if confidence < 0.4:
+        downgrade += 1
+
+    # CWE-862 upgrade: missing auth + entry point + no sanitizer
+    first_cwe = _extract_first_cwe(finding)
+    if first_cwe == "CWE-862":
+        is_entry = file_path and ENTRY_POINT_FILE_PATTERN.search(file_path)
+        has_sanitizer = bool(
+            re.search(
+                r"(?:sanitiz|escape|encode|strip_|clean_|purify)",
+                finding.get("code", "") or finding.get("message", ""),
+                re.IGNORECASE,
+            )
+        )
+        if is_entry and not has_sanitizer:
+            downgrade = 0
+            current = "critical"
+
+    if downgrade > 0:
+        current = _reduce_severity(current, downgrade)
+
+    return current
+
+
+def apply_noise_budget(findings: list[dict], config: dict) -> list[dict]:
+    """Cap findings per CWE category, keeping critical/high intact."""
+    if not findings:
+        return findings
+
+    filter_config = config.get("finding_filters", {})
+    noise_config = filter_config.get("noise_budget", {})
+
+    max_medium = noise_config.get("max_medium_per_cwe", NOISE_BUDGET_DEFAULTS["max_medium_per_cwe"])
+    max_low = noise_config.get("max_low_per_cwe", NOISE_BUDGET_DEFAULTS["max_low_per_cwe"])
+    max_info = noise_config.get("max_info_per_cwe", NOISE_BUDGET_DEFAULTS["max_info_per_cwe"])
+
+    limits: dict[str, int] = {
+        "critical": 0,
+        "high": 0,
+        "medium": max_medium,
+        "low": max_low,
+        "info": max_info,
+    }
+
+    # Group by severity + first CWE
+    buckets: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for f in findings:
+        severity = f.get("severity", "info")
+        cwe = _extract_first_cwe(f) or "CWE-UNKNOWN"
+        buckets[(severity, cwe)].append(f)
+
+    result: list[dict] = []
+    for (severity, cwe), group in buckets.items():
+        limit = limits.get(severity, 0)
+        if limit == 0:
+            # No cap — keep all
+            result.extend(group)
+        else:
+            # Sort by confidence descending, then keep up to limit
+            sorted_group = sorted(
+                group,
+                key=lambda f: f.get("confidence_score", 0.5),
+                reverse=True,
+            )
+            result.extend(sorted_group[:limit])
+
+    return result
 
 
 def _detect_entry_points(file_content: str, language: str) -> list[int]:
@@ -180,4 +421,33 @@ def apply_finding_filters(
 
         result.append(entry)
 
-    return result
+    findings = result
+
+    # Apply confidence scoring
+    filter_config = config.get("finding_filters", {})
+    if filter_config.get("confidence_scoring", {}).get("enabled", True):
+        for f in findings:
+            if f.get("is_suppressed"):
+                f["confidence_score"] = 0.0
+                continue
+            f["confidence_score"] = compute_confidence_score(f, project_root)
+        min_score = filter_config.get("confidence_scoring", {}).get("minimum_score", 0.3)
+        findings = [f for f in findings if f.get("is_suppressed") or f.get("confidence_score", 0.5) >= min_score]
+
+    # Deduplicate by similarity
+    if filter_config.get("similarity_dedup", {}).get("enabled", True):
+        findings = deduplicate_by_similarity(findings)
+
+    # Calibrate severity
+    if filter_config.get("severity_calibration", {}).get("enabled", True):
+        for f in findings:
+            if f.get("is_suppressed") or f.get("context") == "test_code":
+                continue
+            f["original_severity"] = f.get("severity", "info")
+            f["severity"] = calibrate_severity(f, project_root)
+
+    # Apply noise budget
+    if filter_config.get("noise_budget", {}).get("enabled", True):
+        findings = apply_noise_budget(findings, config)
+
+    return findings

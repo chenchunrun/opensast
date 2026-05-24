@@ -119,3 +119,353 @@ rules:
       - pattern-not-inside: |
           import "crypto/rand"
           ...
+
+  - id: go.security.template-injection
+    languages: [go]
+    severity: ERROR
+    message: "Detected template.New() with user-controlled name. Use fixed template names to prevent injection."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-94"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern: |
+          template.Must(template.New($USER_INPUT))
+      - pattern-not: |
+          template.Must(template.New("..."))
+
+  - id: go.security.log-injection
+    languages: [go]
+    severity: WARNING
+    message: "Detected log.Printf with unsanitized user input. Sanitize or validate input before logging."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-117"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              log.Printf($USER_INPUT)
+          - pattern: |
+              $LOGGER.Printf($USER_INPUT, ...)
+          - pattern: |
+              log.Println($USER_INPUT)
+      - pattern-not: |
+          log.Printf("...", ...)
+
+  - id: go.security.header-injection
+    languages: [go]
+    severity: WARNING
+    message: "Detected HTTP header set with unsanitized input. Validate header values to prevent response splitting."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-113"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern: |
+          $W.Header().Set($KEY, $USER_INPUT)
+      - pattern-not: |
+          $W.Header().Set("...", "...")
+
+  - id: go.security.multipart-upload
+    languages: [go]
+    severity: WARNING
+    message: "Detected file upload without validation. Validate file type and size before processing."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-434"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $REQ.FormFile(...)
+          - pattern: |
+              $REQ.MultipartForm.File[...]
+      - pattern-not-inside: |
+          if $INFO.Size > ... { ... }
+
+  - id: go.security.weak-hash-md5
+    languages: [go]
+    severity: WARNING
+    message: "Detected MD5 hash usage. MD5 is cryptographically broken. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              md5.Sum(...)
+          - pattern: |
+              md5.New()
+
+  - id: go.security.weak-hash-sha1
+    languages: [go]
+    severity: WARNING
+    message: "Detected SHA-1 hash usage. SHA-1 is cryptographically weak. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              sha1.Sum(...)
+          - pattern: |
+              sha1.New()
+
+  - id: go.security.insecure-tls-config
+    languages: [go]
+    severity: ERROR
+    message: "Detected TLS config with InsecureSkipVerify. This disables certificate verification."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [go]
+    patterns:
+      - pattern: |
+          tls.Config{InsecureSkipVerify: true}
+
+  - id: go.security.deserialization-gob
+    languages: [go]
+    severity: ERROR
+    message: "Detected gob.Decode on untrusted input. Gob deserialization can lead to denial of service or unexpected behavior."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-502"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              gob.NewDecoder($READER).Decode(...)
+          - pattern: |
+              $DEC.Decode(...)
+
+  - id: go.security.race-condition-map
+    languages: [go]
+    severity: WARNING
+    message: "Detected concurrent map access without synchronization. Use sync.Map or mutex to prevent race conditions."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-362"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-inside: |
+          go func(...) {
+              ...
+              $MAP[$KEY] = ...
+              ...
+          }(...)
+      - pattern: $MAP[$KEY] = ...
+
+  - id: go.security.defer-close
+    languages: [go]
+    severity: WARNING
+    message: "Detected file/Body opened without defer Close(). Resource may leak on error paths."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-404"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $BODY, $ERR := $RESP.Body
+          - pattern: |
+              $FILE, $ERR := os.Open(...)
+      - pattern-not-inside: |
+          $BODY, $ERR := $RESP.Body
+          ...
+          defer $BODY.Close()
+
+  - id: go.security.hardcoded-credentials
+    languages: [go]
+    severity: ERROR
+    message: "Detected hardcoded credential in source code. Use environment variables or a secret manager."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              password = "..."
+          - pattern: |
+              apiKey = "..."
+          - pattern: |
+              secretKey = "..."
+          - pattern: |
+              $VAR := "...password..."
+          - pattern: |
+              $VAR := "...secret..."
+      - pattern-not: |
+          $VAR := os.Getenv(...)
+
+  - id: go.security.tempfile-insecure
+    languages: [go]
+    severity: WARNING
+    message: "Detected os.CreateTemp with predictable prefix. Use crypto/rand for prefix generation."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-377"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [go]
+    pattern: os.CreateTemp("...", "...")
+
+  - id: go.security.file-permission
+    languages: [go]
+    severity: WARNING
+    message: "Detected file creation with overly permissive permissions. Use restrictive permissions (0600 for files, 0755 for directories)."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-276"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              os.OpenFile(..., ..., 0666)
+          - pattern: |
+              os.OpenFile(..., ..., 0777)
+          - pattern: |
+              os.MkdirAll(..., 0777)
+
+  - id: go.security.env-default-secret
+    languages: [go]
+    severity: WARNING
+    message: "Detected environment variable for secret with hardcoded fallback. Remove defaults for sensitive values."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              os.Getenv("SECRET") || "..."
+          - pattern: |
+              os.Getenv("PASSWORD") || "..."
+          - pattern: |
+              os.Getenv("API_KEY") || "..."
+          - pattern: |
+              os.Getenv("TOKEN") || "..."
+
+  - id: go.security.sql-injection-gorm
+    languages: [go]
+    severity: ERROR
+    message: "Detected GORM query with fmt.Sprintf. Use parameterized GORM methods instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [go, gorm]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $DB.Where(fmt.Sprintf(...)).Find(...)
+          - pattern: |
+              $DB.Raw(fmt.Sprintf(...))
+          - pattern: |
+              $DB.Exec(fmt.Sprintf(...))
+
+  - id: go.security.ssrf-http-client
+    languages: [go]
+    severity: ERROR
+    message: "Detected HTTP client request with user-controlled URL. Validate URLs against an allowlist."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [go]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CLIENT.Get($USER_INPUT)
+          - pattern: |
+              $CLIENT.Post($USER_INPUT, ...)
+          - pattern: |
+              $CLIENT.Do(&$REQ)
+      - pattern-not: |
+          $CLIENT.Get("...")
+      - pattern-not-inside: |
+          if strings.HasPrefix($URL, "...") { ... }
+
+  - id: go.security.goroutine-leak
+    languages: [go]
+    severity: WARNING
+    message: "Detected goroutine launched without context cancellation. Use context.WithCancel or context.WithTimeout to prevent goroutine leaks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-404"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: LOW
+      technology: [go]
+    patterns:
+      - pattern: |
+          go func(...) {
+              ...
+          }(...)
+      - pattern-not-inside: |
+          go func(..., $CTX context.Context, ...) {
+              ...
+          }(...)

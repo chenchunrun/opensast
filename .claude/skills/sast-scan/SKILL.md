@@ -13,9 +13,10 @@ allowed-tools:
   - "Bash(python3 .claude/skills/sast-scan/tools/detect_project.py *)"
 ---
 
-# Multi-language SAST Scan
+# Multi-language SAST Scan (LLM-Primary Architecture)
 
-You are running a controlled Static Application Security Testing workflow.
+You are running an LLM-primary SAST workflow. Rule-based tools produce raw signals;
+YOU (Claude) are the primary analyzer that validates, contextualizes, and enriches them.
 
 ## Operating principles
 
@@ -27,6 +28,7 @@ You are running a controlled Static Application Security Testing workflow.
 - Do not modify source code unless the user explicitly asks for remediation.
 - If scanner output and code context disagree, explain the uncertainty.
 - Prioritize actionable findings over noisy findings.
+- **You are the primary analyzer** — rule findings are INPUT for your validation, not final output.
 
 ## Input
 
@@ -51,36 +53,91 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py $ARGUMENTS
 
 5. Read the generated summary at `.claude/sast/results/summary.json`.
 6. Read the generated report at `.claude/sast/results/report.md`.
-7. **LLM Deep Analysis** — Read `.claude/sast/results/analysis-targets.json`. For each high-priority target:
-   - Read the source file identified in `llm_analysis_targets`
-   - Analyze for authorization bypass (IDOR), missing input validation, business logic flaws
-   - Generate findings using the standard format:
-     ```
-     [SEVERITY] rule-id — file:line [CWE-XXX]
-     Evidence: specific code that is vulnerable
-     Fix: specific code change recommendation
-     ```
-   - Priority: critical targets (missing-authentication) → high targets (idor-risk, missing-validation)
-8. **Middleware Coverage Review** — Check `middleware_coverage` in analysis-targets.json:
-   - Report percentage of routes with CSRF protection
-   - Report percentage of routes with rate limiting
-   - Highlight routes with `has_auth: false` as potential auth bypass
-9. **.env File Warning** — If `env_files` is non-empty, warn the user:
-   - "Detected .env files — install Gitleaks for secret scanning: `brew install gitleaks`"
-   - Do NOT read or display .env file contents
-10. Merge rule-based findings (from reports) with LLM findings (from your analysis).
-11. Explain the most important findings to the user, grouped by severity.
-12. Highlight blocking issues based on the configured gate.
-13. Provide remediation guidance with code examples.
-14. Ask for explicit permission before applying any code changes.
+7. **LLM-Centered Analysis** — Read `.claude/sast/results/llm-analysis-plan.json`.
+
+   This is the CORE analysis step. The plan contains TWO types of targets:
+   - `analysis_targets` (type: `validate_finding`): Rule findings that need validation
+   - `discover_targets` (type: `discover_*`): Security areas that rules CANNOT detect
+
+   Process in this order:
+
+   **Phase A: Quick-Dismiss Rule Findings** (`analysis_targets`)
+
+   For each `validate_finding` target (process in priority order):
+   - Read the `archetype_context` — this tells you if the pattern is normal or suspicious
+   - Read the `analysis_prompt` — follow the specific guidance
+   - Quick-dismiss obvious false positives (exec.Command in CLI tool, filepath.Join alone, etc.)
+   - Only do deep analysis for targets where the prompt suggests real risk
+   - Record dismissals in `dismissed_targets` with reason
+
+   **Phase B: Independent Security Discovery** (`discover_targets`)
+
+   This is where you add the most value — these are vulnerability classes that rules miss entirely:
+
+   For each `discover_*` target, READ the actual code and analyze:
+   - `discover_idor`: Read API routes with path params. Check if `findUnique({ id })` has
+     userId/ownership filter. If not, it's IDOR — users can access other users' data.
+   - `discover_credentials`: Read .env files. Are there REAL credentials (SMTP passwords,
+     database passwords, API keys)? Are auth secrets using placeholder values?
+     IMPORTANT: Never display actual secret values — reference by variable name only.
+   - `discover_auth_chain`: Read middleware. Is it actually connected? Does it use
+     timing-safe comparison? Are security headers present?
+   - `discover_crypto`: Read encryption code. Hardcoded keys? Weak algorithms?
+     Fallback to insecure decryption? Weak key derivation?
+   - `discover_ssrf`: Find HTTP calls where URL comes from user-controlled sources
+     (database settings, user input). Is there URL allowlisting?
+   - `discover_sql_injection`: Find raw queries ($queryRawUnsafe, etc.).
+     Is user input parameterized or concatenated?
+
+   **Phase C: Save results** to `.claude/sast/results/llm-findings.json`:
+   ```json
+   {
+     "project_archetype": "web-app",
+     "llm_analysis_complete": true,
+     "validate_targets_analyzed": 15,
+     "discover_targets_analyzed": 8,
+     "findings_validated": 3,
+     "findings_dismissed": 12,
+     "findings_discovered": 7,
+     "findings": [...],
+     "dismissed_targets": [{"target_id": "T-003", "reason": "..."}],
+     "analysis_notes": "Summary"
+   }
+   ```
+
+   **Time budget**: Spend 30% on Phase A (quick dismiss). Spend 70% on Phase B (real analysis).
+   Phase B findings are the highest value — they find what no rule can.
+        "project_archetype": "web-app",
+        "llm_analysis_complete": true,
+        "targets_analyzed": 15,
+        "findings_validated": 3,
+        "findings_dismissed": 12,
+        "findings": [...],
+        "dismissed_targets": [{"target_id": "T-003", "reason": "CLI tool - exec.Command is normal functionality"}],
+        "analysis_notes": "Summary of key observations"
+      }
+      ```
+
+   **Time budget**: Spend 70% on critical/high targets. Quick-dismiss obvious FP.
+   Target: validate all findings in the plan.
+
+8. **Merge findings**: Read `.claude/sast/results/llm-findings.json`.
+   - LLM-validated findings are AUTHORITATIVE — they override rule-based severity
+   - Rule findings that Claude dismissed should be marked `dismissed_by_llm: true`
+   - Rule findings not in the plan (below threshold) keep original severity
+   - New LLM-discovered findings get `tool: "llm-analyzer"`
+9. Explain the most important findings to the user, grouped by severity.
+10. Highlight blocking issues based on the configured gate.
+11. Provide remediation guidance with code examples.
+12. Ask for explicit permission before applying any code changes.
 
 ## Scan profiles
 
-| Profile | Use case | Tools | Time |
-|---------|----------|-------|------|
-| quick | Pre-commit check | Semgrep + Gitleaks | Seconds to 2 min |
-| standard | Regular scan | Semgrep + Gitleaks + Checkov | 2-10 min |
-| deep | Security audit | All tools + CodeQL | 10+ min |
+| Profile | Use case | Tools | LLM Analysis |
+|---------|----------|-------|-------------|
+| quick | Pre-commit check | Semgrep + Gitleaks | No |
+| standard | Regular scan | Semgrep + Gitleaks + Checkov | Yes (validate + discover) |
+| deep | Security audit | All tools + CodeQL | Yes (deep validation + discover) |
 
 ## Finding explanation format
 

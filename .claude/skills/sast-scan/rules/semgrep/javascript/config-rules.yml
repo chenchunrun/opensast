@@ -72,3 +72,148 @@ rules:
           { session: { strategy: "jwt" } }
       - pattern-not-inside: |
           { session: { ..., maxAge: $TIME, ... } }
+
+  - id: js.security.weak-hash-md5
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected MD5 or SHA-1 hash usage. Use SHA-256 or stronger for security purposes."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              crypto.createHash("md5")
+          - pattern: |
+              crypto.createHash("sha1")
+          - pattern: |
+              crypto.createHash("MD5")
+          - pattern: |
+              crypto.createHash("SHA1")
+
+  - id: js.security.insecure-ssl-reject
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "SSL/TLS certificate validation disabled. Remove rejectUnauthorized: false to validate certificates."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              rejectUnauthorized: false
+          - pattern: |
+              process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+
+  - id: js.security.hardcoded-iv
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected hardcoded initialization vector (IV). Use crypto.randomBytes() to generate a unique IV for each encryption."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-320"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              const $IV = Buffer.from("...")
+          - pattern: |
+              const $IV = new Uint8Array([...])
+          - pattern: |
+              let $IV = "..."
+
+  - id: js.security.ecb-mode
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected AES-ECB mode usage. ECB mode does not provide semantic security. Use CBC or GCM mode."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-327"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              crypto.createCipheriv("aes-128-ecb", ...)
+          - pattern: |
+              crypto.createCipheriv("aes-256-ecb", ...)
+          - pattern: |
+              crypto.createDecipheriv("aes-128-ecb", ...)
+          - pattern: |
+              crypto.createDecipheriv("aes-256-ecb", ...)
+
+  - id: js.security.console-log-sensitive
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Detected potentially sensitive data in console.log. Avoid logging passwords, tokens, or secrets."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-532"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              console.log($VAR.password)
+          - pattern: |
+              console.log($VAR.token)
+          - pattern: |
+              console.log($VAR.secret)
+          - pattern: |
+              console.log($VAR.apiKey)
+          - pattern: |
+              console.log($VAR.api_key)
+
+  - id: js.security.express-session-memory
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Express session using MemoryStore which is not designed for production. Use a proper session store like Redis."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-613"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: MEDIUM
+      technology: [javascript, typescript, express, nodejs]
+    patterns:
+      - pattern: |
+          new MemoryStore()
+
+  - id: js.security.jwt-verify-none
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "JWT decoded without algorithm verification. Always specify expected algorithms to prevent algorithm confusion attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-327"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern: |
+          jwt.decode($TOKEN)
+      - pattern-not: |
+          jwt.verify($TOKEN, ...)

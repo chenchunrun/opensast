@@ -61,6 +61,122 @@ TEXT_MANIFESTS = {
 }
 SPRING_KEYWORDS = {"spring-core", "spring-boot", "org.springframework", "spring"}
 
+WEB_FRAMEWORKS = {
+    "express", "next", "vue", "angular", "django", "flask", "fastapi",
+    "spring", "rails", "laravel", "symfony", "gin", "fiber", "actix",
+    "rocket", "svelte", "nuxt", "remix", "hono", "fastify", "koa",
+}
+
+CLI_FRAMEWORKS = {
+    "cobra": "github.com/spf13/cobra",
+    "urfave": "github.com/urfave/cli",
+    "click": "click",
+    "argparse": "argparse",
+    "typer": "typer",
+}
+
+
+def _detect_archetype(
+    target_path: str, languages: dict, frameworks: list[str], file_list: list[tuple[str, str]],
+) -> str:
+    """Detect project archetype: web-app, cli-tool, library, or serverless."""
+    abs_path = os.path.abspath(target_path)
+
+    # Check for serverless indicators
+    for root, dirs, files in os.walk(abs_path):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        for f in files:
+            if f in ("serverless.yml", "serverless.yaml"):
+                return "serverless"
+            if f in ("handler.py", "handler.js", "handler.ts", "index.ts", "index.js"):
+                rel = os.path.relpath(os.path.join(root, f), abs_path)
+                if not rel.startswith("node_modules") and not rel.startswith("vendor"):
+                    return "serverless"
+        break  # only top-level
+
+    # Check for web framework indicators
+    fw_set = set(frameworks)
+    if fw_set & WEB_FRAMEWORKS:
+        return "web-app"
+
+    # Check for route files (Next.js, etc.) — only in web-related directories
+    has_web_routes = False
+    for ext, filepath in file_list:
+        basename = os.path.basename(filepath)
+        if basename == "route.ts" or basename == "route.js":
+            has_web_routes = True
+            break
+    if has_web_routes:
+        return "web-app"
+
+    # Check for main.go / cmd/ directory → CLI indicator
+    has_main = os.path.isfile(os.path.join(abs_path, "main.go"))
+    has_cmd = os.path.isdir(os.path.join(abs_path, "cmd"))
+
+    # Check for main.go in subdirectories (e.g., crush-main/main.go)
+    if not has_main:
+        for entry in os.listdir(abs_path):
+            subdir = os.path.join(abs_path, entry)
+            if os.path.isdir(subdir) and os.path.isfile(os.path.join(subdir, "main.go")):
+                has_main = True
+                break
+
+    # Check for HTTP handler patterns in Go
+    if "go" in languages:
+        # Check for CLI framework in go.mod
+        go_mod_path = os.path.join(abs_path, "go.mod")
+        has_cli_dep = False
+        if os.path.isfile(go_mod_path):
+            try:
+                with open(go_mod_path, encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read()
+                for _, dep in CLI_FRAMEWORKS.items():
+                    if dep in content:
+                        has_cli_dep = True
+                        break
+            except OSError:
+                pass
+
+        if has_cmd or has_main or has_cli_dep:
+            return "cli-tool"
+
+    # Check for CLI indicators in Python
+    if "python" in languages:
+        pyproject = os.path.join(abs_path, "pyproject.toml")
+        if os.path.isfile(pyproject):
+            try:
+                with open(pyproject, encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read().lower()
+                for cli_name in ("click", "typer", "argparse"):
+                    if cli_name in content:
+                        return "cli-tool"
+            except OSError:
+                pass
+
+        setup_py = os.path.join(abs_path, "setup.py")
+        if os.path.isfile(setup_py):
+            try:
+                with open(setup_py, encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read().lower()
+                if "console_scripts" in content or "entry_points" in content:
+                    return "cli-tool"
+            except OSError:
+                pass
+
+    # Check for Java Spring Boot
+    if "java" in languages:
+        for ext, filepath in file_list:
+            try:
+                with open(filepath, encoding="utf-8", errors="ignore") as fh:
+                    head = fh.read(2000)
+                if "@SpringBootApplication" in head or "@RestController" in head:
+                    return "web-app"
+            except OSError:
+                continue
+
+    # Default: library
+    return "library"
+
 
 def _run_git(args: list[str], cwd: str) -> str | None:
     try:
@@ -231,10 +347,13 @@ def detect_project(target_path: str) -> dict:
     frameworks = _detect_frameworks(target_path, manifest_paths)
     has_iac = len(iac_paths) > 0
 
+    archetype = _detect_archetype(target_path, languages, frameworks, file_list)
+
     return {
         "repo_root": git_root or target_path,
         "is_git_repo": git_root is not None,
         "is_monorepo": any(c > 1 for c in manifest_counts.values()),
+        "archetype": archetype,
         "languages": languages,
         "manifests": sorted(manifest_paths),
         "frameworks": frameworks,

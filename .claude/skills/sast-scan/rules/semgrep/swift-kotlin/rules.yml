@@ -1,0 +1,375 @@
+rules:
+  # --- Swift Rules (10) ---
+
+  - id: swift.security.hardcoded-credentials
+    languages: [swift]
+    severity: WARNING
+    message: "Detected hardcoded credential. Use Keychain or environment variables."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [swift, ios]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              let password = "..."
+          - pattern: |
+              let secret = "..."
+          - pattern: |
+              let apiKey = "..."
+          - pattern: |
+              let api_key = "..."
+
+  - id: swift.security.insecure-random
+    languages: [swift]
+    severity: WARNING
+    message: "Detected arc4random for security purposes. Use SystemRandomNumberGenerator or CryptoKit."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [swift, ios]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              arc4random()
+          - pattern: |
+              arc4random_uniform(...)
+
+  - id: swift.security.weak-hash-md5
+    languages: [swift]
+    severity: WARNING
+    message: "Detected MD5/SHA1 hash usage. Use CryptoKit SHA256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [swift, ios]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Insecure.MD5.hash(...)
+          - pattern: |
+              Insecure.SHA1.hash(...)
+
+  - id: swift.security.insecure-cookie
+    languages: [swift]
+    severity: WARNING
+    message: "HTTPCookie without secure flag. Set isSecure=true for HTTPS cookies."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-614"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [swift, ios]
+    pattern: 'HTTPCookie(properties: [...])'
+
+  - id: swift.security.keychain-insecure
+    languages: [swift]
+    severity: WARNING
+    message: "Keychain item accessible in all conditions. Use .whenUnlockedThisDeviceOnly for sensitive data."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-312"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [swift, ios]
+    patterns:
+      - pattern-either:
+          - pattern: kSecAttrAccessible = kSecAttrAccessibleAlways
+          - pattern: kSecAttrAccessible = .alwaysThisDeviceOnly
+
+  - id: swift.security.ssl-pinning-disabled
+    languages: [swift]
+    severity: WARNING
+    message: "SSL certificate pinning disabled. Implement proper certificate pinning."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [swift, ios]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              allowsAnyHTTPSCertificate = true
+          - pattern: |
+              allowsAnyHTTPSCertificate(forHost: ...)
+
+  - id: swift.security.logging-sensitive
+    languages: [swift]
+    severity: WARNING
+    message: "Detected sensitive data in log/print statement. Avoid logging credentials or tokens."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-532"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [swift, ios]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              print($VAR.password)
+          - pattern: |
+              print($VAR.token)
+          - pattern: |
+              os_log("\(password)")
+          - pattern: |
+              os_log("\(token)")
+
+  - id: swift.security.url-scheme-bypass
+    languages: [generic]
+    severity: WARNING
+    message: "URL scheme handler without proper validation. Validate incoming URLs."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-939"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [swift, ios]
+    pattern: 'open url'
+
+  - id: swift.security.debug-logging
+    languages: [swift]
+    severity: INFO
+    message: "Sensitive data logged in DEBUG mode. Remove debug logging before release."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: LOW
+      technology: [swift, ios]
+    patterns:
+      - pattern: |
+          #if DEBUG
+          ...
+          print($VAR)
+          ...
+          #endif
+
+  - id: swift.security.assert-in-production
+    languages: [swift]
+    severity: WARNING
+    message: "assert() is disabled in release builds. Use precondition() or explicit checks for security."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-617"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [swift, ios]
+    pattern: assert(...)
+
+  # --- Kotlin Rules (10) ---
+
+  - id: kotlin.security.hardcoded-credentials
+    languages: [kotlin]
+    severity: WARNING
+    message: "Detected hardcoded credential. Use BuildConfig fields or encrypted storage."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              val password = "..."
+          - pattern: |
+              val secret = "..."
+          - pattern: |
+              val apiKey = "..."
+          - pattern: |
+              val api_key = "..."
+
+  - id: kotlin.security.insecure-random
+    languages: [kotlin]
+    severity: WARNING
+    message: "Detected java.util.Random for security purposes. Use java.security.SecureRandom."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [kotlin, android]
+    patterns:
+      - pattern: java.util.Random()
+      - pattern-not: java.security.SecureRandom()
+
+  - id: kotlin.security.weak-hash-md5
+    languages: [kotlin]
+    severity: WARNING
+    message: "Detected MD5/SHA-1 hash usage. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: MessageDigest.getInstance("MD5")
+          - pattern: MessageDigest.getInstance("SHA-1")
+          - pattern: MessageDigest.getInstance("SHA1")
+
+  - id: kotlin.security.ssl-trust-all
+    languages: [kotlin]
+    severity: ERROR
+    message: "SSL certificate verification disabled. Remove TrustAllManager or custom X509TrustManager."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: TrustAllManager
+          - pattern: checkServerTrusted(...)
+          - pattern: getAcceptedIssuers()
+
+  - id: kotlin.security.intent-injection
+    languages: [kotlin]
+    severity: WARNING
+    message: "Detected Intent with user-controlled action/data. Validate intent contents."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-940"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Intent($USER_ACTION)
+          - pattern: |
+              Intent($USER_ACTION, $URI)
+      - pattern-not: |
+          Intent("...")
+
+  - id: kotlin.security.webview-js-enabled
+    languages: [kotlin]
+    severity: WARNING
+    message: "WebView with JavaScript enabled. Disable if not needed, or validate all JS inputs."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-749"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [kotlin, android]
+    patterns:
+      - pattern: |
+          webView.settings.javaScriptEnabled = true
+
+  - id: kotlin.security.content-provider-exported
+    languages: [kotlin]
+    severity: WARNING
+    message: "ContentProvider exported to all apps. Set exported=false or add permission checks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-926"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [kotlin, android]
+    pattern: exported = true
+
+  - id: kotlin.security.logging-sensitive
+    languages: [kotlin]
+    severity: WARNING
+    message: "Detected sensitive data in log statement. Avoid logging credentials in production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-532"
+      owasp:
+        - "A09:2021-Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Log.d($TAG, $VAR.password)
+          - pattern: |
+              Log.d($TAG, $VAR.token)
+          - pattern: |
+              Log.d($TAG, password)
+          - pattern: |
+              Log.d($TAG, token)
+
+  - id: kotlin.security.shared-preference-plain
+    languages: [kotlin]
+    severity: WARNING
+    message: "SharedPreferences with world-readable mode. Use EncryptedSharedPreferences."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-312"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              MODE_WORLD_READABLE
+          - pattern: |
+              MODE_WORLD_WRITEABLE
+
+  - id: kotlin.security.sqlite-injection
+    languages: [kotlin]
+    severity: ERROR
+    message: "Detected raw SQL query with string concatenation. Use parameterized queries."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              db.execSQL("..." + $VAR + "...")
+          - pattern: |
+              db.rawQuery("..." + $VAR + "...", ...)
+      - pattern-not: |
+          db.execSQL("...", ...)

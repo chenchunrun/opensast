@@ -23,9 +23,11 @@ targets:
     - .nuxt
     - .turbo
     - .cache
+    - .gomodcache
     - coverage
     - .ruff_cache
     - .parcel-cache
+    - skills
 
 profiles:
   quick:
@@ -72,15 +74,9 @@ report:
     - sarif
   output_dir: .claude/sast/results
 
-finding_filters:
-  test_code:
-    enabled: true
-    severity_reduction: one_level
-  generated_code:
-    enabled: true
-    action: suppress
-  reachability:
-    enabled: false
+fast_filters:
+  generated_code: true
+  test_code: true
 
 baseline:
   enabled: true
@@ -117,3 +113,38 @@ tools:
     query_suite: security-extended
     enable_cache: true
     cache_dir: .claude/sast/codeql-cache
+
+archetype_detection:
+  enabled: true
+
+llm_orchestration:
+  enabled: true
+  max_targets: 15
+  context_lines: 15
+  max_file_lines: 200
+  archetype_strategies:
+    web-app:
+      elevate_patterns:
+        - exec.Command
+        - "eval("
+        - innerHTML
+      suppress_patterns: []
+    cli-tool:
+      suppress_patterns:
+        - exec.Command
+        - os.Getenv
+      elevate_patterns:
+        - SQL injection
+        - path traversal
+    library:
+      suppress_patterns:
+        - exec.Command
+      elevate_patterns:
+        - crypto
+        - hash
+        - password
+    serverless:
+      elevate_patterns:
+        - exec.Command
+        - "eval("
+      suppress_patterns: []

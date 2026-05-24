@@ -31,6 +31,20 @@ SENSITIVE_FILE_PATTERNS = re.compile(
 )
 RAW_QUERY_PATTERN = re.compile(r"\$queryRawUnsafe|\$executeRawUnsafe|raw\s*\(", re.IGNORECASE)
 
+GO_SECURITY_IMPORTS = re.compile(
+    r'"(?:os/exec|crypto/(?:cipher|aes|rsa|sha256|md5|rand|tls)|'
+    r'net/http|database/sql|encoding/hex|encoding/base64)"',
+)
+GO_SECURITY_PATTERNS = re.compile(
+    r"(exec\.Command|http\.Client|http\.Get|http\.Post|sql\.Query|sql\.Exec|"
+    r"sha256\.Sum|md5\.New|aes\.NewCipher|rand\.Read|"
+    r"os\.Getenv|viper\.Get|filepath\.Join|exec\.LookPath)",
+)
+GO_AUTH_PATTERNS = re.compile(
+    r"(oauth|token|jwt|bearer|session|cookie|permission|authorize|rbac|acl)",
+    re.IGNORECASE,
+)
+
 
 def _find_route_files(target: str) -> list[str]:
     """Find all Next.js API route files."""
@@ -126,24 +140,42 @@ def _find_sensitive_files(target: str) -> list[str]:
     """Find files related to encryption, auth config, etc."""
     sensitive = []
     abs_target = os.path.abspath(target)
-    exclude = {"node_modules", ".next", ".git", "dist", ".venv", "__pycache__"}
+    exclude = {"node_modules", ".next", ".git", "dist", ".venv", "__pycache__",
+               "vendor", ".gomodcache", "testdata", "test-harness", "fixtures"}
     for root, dirs, files in os.walk(abs_target):
         dirs[:] = [d for d in dirs if d not in exclude]
         for f in files:
             if not f.endswith((".ts", ".js", ".tsx", ".jsx", ".py", ".go", ".java")):
                 continue
             name_lower = f.lower()
+            filepath = os.path.join(root, f)
+            rel_path = os.path.relpath(filepath, abs_target)
+
+            if name_lower.endswith("_test.go") or name_lower.endswith("_test.py"):
+                continue
+
             if SENSITIVE_FILE_PATTERNS.search(name_lower):
-                sensitive.append(os.path.relpath(os.path.join(root, f), abs_target))
-            else:
-                filepath = os.path.join(root, f)
-                try:
-                    with open(filepath, encoding="utf-8", errors="ignore") as fh:
-                        content = fh.read(5000)
-                except OSError:
-                    continue
-                if RAW_QUERY_PATTERN.search(content):
-                    sensitive.append(os.path.relpath(filepath, abs_target))
+                sensitive.append(rel_path)
+                continue
+
+            try:
+                with open(filepath, encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read(5000)
+            except OSError:
+                continue
+
+            if RAW_QUERY_PATTERN.search(content):
+                sensitive.append(rel_path)
+                continue
+
+            # Go security-relevant files
+            if name_lower.endswith(".go"):
+                has_security_import = bool(GO_SECURITY_IMPORTS.search(content))
+                has_security_code = bool(GO_SECURITY_PATTERNS.search(content))
+                has_auth = bool(GO_AUTH_PATTERNS.search(content) or GO_AUTH_PATTERNS.search(name_lower))
+                if (has_security_import and has_security_code) or has_auth:
+                    sensitive.append(rel_path)
+
     return sensitive
 
 

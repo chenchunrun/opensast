@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from baseline import filter_new_findings, load_baseline, save_baseline
 from ci_gate import check_trend_gate, evaluate_gate, get_exit_code
 from detect_project import detect_project
-from finding_filters import apply_finding_filters
 from github_integration import post_pr_comment
 from history import compare_scans, get_previous_scan, load_scan_history, save_scan_result
 from normalize_findings import (
@@ -32,7 +31,7 @@ from run_gitleaks import run_gitleaks
 from run_gosec import run_gosec
 from run_semgrep import run_semgrep
 from sarif_merge import merge_sarif_files, normalize_paths_in_sarif
-from context_collector import collect_analysis_targets, save_analysis_targets
+from llm_orchestrator import apply_fast_filters, generate_analysis_plan, save_analysis_plan
 
 logger = logging.getLogger("sast_runner")
 
@@ -258,11 +257,12 @@ def run(args: argparse.Namespace) -> int:
             except ValueError:
                 pass
 
+    # Fast deterministic filters (generated code, test code)
+    logger.info("Applying fast filters...")
+    all_findings = apply_fast_filters(all_findings)
+
     baseline_path = args.baseline or config.get("baseline", {}).get("file", ".claude/sast/baseline.json")
     baseline_enabled = config.get("baseline", {}).get("enabled", True)
-
-    logger.info("Applying finding filters...")
-    all_findings = apply_finding_filters(all_findings, target, config)
 
     baseline_data = {}
     if baseline_enabled:
@@ -270,6 +270,9 @@ def run(args: argparse.Namespace) -> int:
         all_findings = filter_new_findings(all_findings, baseline_data)
 
     all_findings = redact_findings(all_findings)
+
+    severity_counts = _count_severity(all_findings)
+    new_count = sum(1 for f in all_findings if f.get("is_new"))
 
     logger.info("Merging SARIF files...")
     sarif_paths = _collect_sarif_paths(scan_results)
@@ -280,9 +283,6 @@ def run(args: argparse.Namespace) -> int:
         merged = redact_sarif(merged)
         with open(merged_sarif_path, "w", encoding="utf-8") as fh:
             json.dump(merged, fh, indent=2)
-
-    severity_counts = _count_severity(all_findings)
-    new_count = sum(1 for f in all_findings if f.get("is_new"))
 
     gate_result = evaluate_gate(all_findings, fail_on=fail_on, baseline_enabled=baseline_enabled)
     blocking_count = gate_result.get("blocking_count", 0)
@@ -303,6 +303,19 @@ def run(args: argparse.Namespace) -> int:
         "gate_result": gate_result,
         "tool_errors": tool_errors,
     }
+
+    # Compliance mapping (GB/T 35273, PCI DSS, ISO 27001)
+    if profile_name in ("standard", "deep"):
+        try:
+            from compliance import compute_all_compliance, generate_compliance_report
+            all_compliance = compute_all_compliance(all_findings)
+            summary["compliance"] = all_compliance
+            compliance_md = os.path.join(output_dir, "compliance.md")
+            with open(compliance_md, "w", encoding="utf-8") as fh:
+                fh.write(generate_compliance_report(all_compliance, all_findings))
+            logger.info("Compliance report: %s", compliance_md)
+        except Exception as e:
+            logger.debug("Compliance mapping failed: %s", e)
 
     # Trend analysis
     if profile_name in ("standard", "deep") and config.get("history", {}).get("enabled", True):
@@ -346,16 +359,24 @@ def run(args: argparse.Namespace) -> int:
     claude_output = generate_claude_summary(summary, all_findings)
     print("\n" + claude_output)
 
-    # Context collection for LLM analysis
-    try:
-        analysis_targets = collect_analysis_targets(target, project, all_findings)
-        targets_path = save_analysis_targets(analysis_targets, output_dir)
-        logger.info("Analysis targets saved: %s (%d LLM targets)",
-                     targets_path, len(analysis_targets.get("llm_analysis_targets", [])))
-        summary["middleware_coverage"] = analysis_targets.get("middleware_coverage", {})
-        summary["env_files"] = analysis_targets.get("env_files", [])
-    except Exception as e:
-        logger.debug("Context collection failed: %s", e)
+    # LLM analysis plan — the CORE of LLM-primary architecture
+    if profile_name in ("standard", "deep"):
+        logger.info("Generating LLM analysis plan...")
+        try:
+            llm_plan = generate_analysis_plan(
+                findings=all_findings,
+                project=project,
+                project_root=target,
+                config=config,
+            )
+            plan_path = save_analysis_plan(llm_plan, output_dir)
+            logger.info("LLM analysis plan: %s (%d targets, archetype=%s)",
+                        plan_path, len(llm_plan.get("analysis_targets", [])),
+                        llm_plan.get("project_archetype", "unknown"))
+            summary["llm_analysis_targets"] = len(llm_plan.get("analysis_targets", []))
+            summary["project_archetype"] = llm_plan.get("project_archetype", "unknown")
+        except Exception as e:
+            logger.warning("LLM analysis plan generation failed: %s", e)
 
     _write_tool_versions(output_dir, scan_results)
 

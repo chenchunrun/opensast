@@ -1,0 +1,123 @@
+rules:
+  - id: js.security.express-debug-mode
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Express debug mode enabled. Disable stack trace display in production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [javascript, typescript, express, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              app.set("show stack error", true)
+          - pattern: |
+              app.set("showStackError", true)
+          - pattern: |
+              app.set("env", "development")
+
+  - id: js.security.express-cors-wildcard
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Express CORS configured with wildcard origin. Restrict to specific domains."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-942"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [javascript, typescript, express, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              cors({ origin: "*" })
+          - pattern: |
+              cors({ origin: true })
+          - pattern: |
+              app.use(cors({ origin: "*" }))
+          - pattern: |
+              cors()
+
+  - id: js.security.express-helmet-missing
+    languages: [javascript, typescript]
+    severity: INFO
+    message: "Express app without helmet middleware. Use helmet() to set security headers."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-693"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: LOW
+      technology: [javascript, typescript, express, nodejs]
+    patterns:
+      - pattern: |
+          const app = express()
+      - pattern-not-inside: |
+          app.use(helmet())
+
+  - id: js.security.cookie-secure-false
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Cookie configured with secure: false. Set secure: true for HTTPS-only cookies."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-614"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              cookie($NAME, $VAL, { secure: false })
+          - pattern: |
+              res.cookie($NAME, $VAL, { secure: false })
+          - pattern: |
+              { secure: false, ... }
+
+  - id: js.security.cookie-httponly-false
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Cookie configured with httpOnly: false. Set httpOnly: true to prevent XSS access."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-1004"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              cookie($NAME, $VAL, { httpOnly: false })
+          - pattern: |
+              res.cookie($NAME, $VAL, { httpOnly: false })
+          - pattern: |
+              { httpOnly: false, ... }
+
+  - id: js.security.jwt-none-algorithm
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "JWT verify with 'none' algorithm allowed. Remove 'none' from allowed algorithms."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-327"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              jwt.verify($TOKEN, $SECRET, { algorithms: ["none"] })
+          - pattern: |
+              jwt.verify($TOKEN, $SECRET, { algorithms: [..., "none", ...] })

@@ -1,0 +1,396 @@
+rules:
+  - id: ruby.security.sql-injection-string
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected SQL query using string interpolation. Use parameterized queries instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [ruby, rails]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $MODEL.where("...#{...}...")
+          - pattern: |
+              $CONN.execute("...#{...}...")
+          - pattern: |
+              $MODEL.find_by_sql("...#{...}...")
+      - pattern-not: |
+          $MODEL.where("...", ...)
+
+  - id: ruby.security.command-injection
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected command execution with string interpolation. Use array-form arguments."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              system("...#{...}...")
+          - pattern: |
+              exec("...#{...}...")
+          - pattern: |
+              `...#{...}...`
+          - pattern: |
+              %x[...#{...}...]
+          - pattern: |
+              Open3.capture2("...#{...}...")
+      - pattern-not: |
+          system("...", ...)
+
+  - id: ruby.security.eval-usage
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected eval() with non-literal argument. eval() can execute arbitrary code."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-94"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern: eval($VAR)
+      - pattern-not: eval("...")
+
+  - id: ruby.security.xss-raw
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected raw HTML output without escaping. Use .html_escape or h() helper."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [ruby, rails]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              raw($USER_INPUT)
+          - pattern: |
+              $USER_INPUT.html_safe
+      - pattern-not-inside: |
+          raw(h(...))
+
+  - id: ruby.security.deserialization-yaml
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected YAML.load without safe mode. Use YAML.safe_load() to prevent deserialization attacks."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-502"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern: YAML.load(...)
+      - pattern-not: YAML.safe_load(...)
+
+  - id: ruby.security.csrf-disabled
+    languages: [ruby]
+    severity: WARNING
+    message: "CSRF protection disabled. Remove skip_before_action for verify_authenticity_token."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-352"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: HIGH
+      technology: [ruby, rails]
+    pattern: |
+        skip_before_action :verify_authenticity_token
+
+  - id: ruby.security.mass-assignment
+    languages: [ruby]
+    severity: WARNING
+    message: "Mass assignment with unfiltered params. Use strong parameters (.permit)."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-915"
+      owasp:
+        - "A08:2021-Software and Data Integrity Failures"
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $MODEL.new(params[...])
+          - pattern: |
+              $MODEL.update(params[...])
+          - pattern: |
+              $MODEL.assign_attributes(params[...])
+      - pattern-not: |
+          $MODEL.new(params.require(...).permit(...))
+
+  - id: ruby.security.insecure-cookie
+    languages: [ruby]
+    severity: WARNING
+    message: "Cookie without secure/httponly flags. Set secure: true and httponly: true."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-614"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    patterns:
+      - pattern: |
+          cookies.permanent[...] = ...
+      - pattern-not-inside: |
+          cookies.permanent.signed[...] = ...
+
+  - id: ruby.security.session-secret-hardcoded
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected hardcoded session secret. Use environment variable or Rails credentials."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [ruby, rails]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              secret_key_base = "..."
+          - pattern: |
+              secret_token = "..."
+          - pattern: |
+              $VAR[:secret] = "..."
+          - pattern: |
+              "secret" => "..."
+      - pattern-not: |
+          secret_key_base = ENV[...]
+
+  - id: ruby.security.debug-mode
+    languages: [ruby]
+    severity: WARNING
+    message: "Rails debug mode enabled. Set consider_all_requests_local = false in production."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-215"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: HIGH
+      technology: [ruby, rails]
+    patterns:
+      - pattern: |
+          config.consider_all_requests_local = true
+
+  - id: ruby.security.hardcoded-credentials
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected hardcoded credential in config. Use environment variables."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $VAR = "...password..."
+          - pattern: |
+              $VAR = "...secret..."
+      - pattern-not: $VAR = ENV[...]
+
+  - id: ruby.security.weak-password-hash
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected weak hash for password. Use BCrypt::Password.create() instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-916"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Digest::MD5.hexdigest($PASSWORD)
+          - pattern: |
+              Digest::SHA1.hexdigest($PASSWORD)
+      - pattern-not-inside: |
+          BCrypt::Password.create(...)
+
+  - id: ruby.security.insecure-compare
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected non-constant-time comparison of secrets. Use ActiveSupport::SecurityUtils.secure_compare."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-208"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $SECRET == $VAR
+          - pattern: |
+              $VAR == $SECRET
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: "(?i)(password|token|secret|key|api_key|auth)"
+      - pattern-not: |
+          secure_compare(...)
+
+  - id: ruby.security.path-traversal
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected file operation with user-controlled path. Validate to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              File.open(params[...])
+          - pattern: |
+              send_file(params[...])
+          - pattern: |
+              IO.read(params[...])
+      - pattern-not: |
+          File.open("...")
+
+  - id: ruby.security.ssrf-open-uri
+    languages: [ruby]
+    severity: ERROR
+    message: "Detected open/URI.open with user-controlled URL. Validate URLs to prevent SSRF."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-918"
+      owasp:
+        - "A10:2021-Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              open($USER_INPUT)
+          - pattern: |
+              URI.open($USER_INPUT)
+          - pattern: |
+              Kernel.open($USER_INPUT)
+      - pattern-not: |
+          URI.open("...")
+
+  - id: ruby.security.insecure-random
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected rand() used for security-sensitive purposes. Use SecureRandom instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: rand(...)
+          - pattern: Random.rand(...)
+      - pattern-not-inside: |
+          require 'securerandom'
+          ...
+
+  - id: ruby.security.tempfile-insecure
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected Tempfile with predictable prefix. Use SecureRandom for prefix generation."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-377"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [ruby]
+    patterns:
+      - pattern: Tempfile.new("...")
+
+  - id: ruby.security.weak-hash-md5
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected MD5 hash usage. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: Digest::MD5.new
+          - pattern: Digest::MD5.hexdigest(...)
+
+  - id: ruby.security.weak-hash-sha1
+    languages: [ruby]
+    severity: WARNING
+    message: "Detected SHA-1 hash usage. Use SHA-256 or stronger."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-328"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: Digest::SHA1.new
+          - pattern: Digest::SHA1.hexdigest(...)
+
+  - id: ruby.security.ssl-verify-disabled
+    languages: [ruby]
+    severity: ERROR
+    message: "SSL certificate verification disabled. Remove VERIFY_NONE to validate certificates."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [ruby]
+    patterns:
+      - pattern-either:
+          - pattern: OpenSSL::SSL::VERIFY_NONE

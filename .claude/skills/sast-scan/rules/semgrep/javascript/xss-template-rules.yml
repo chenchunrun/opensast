@@ -61,3 +61,71 @@ rules:
               "Content-Disposition": "...filename=\"" + $VAR + "\""
           - pattern: |
               $HEADERS.set("Content-Disposition", `...${$VAR}...`)
+
+  - id: js.security.dom-xss-innerhtml
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected user-controlled value in innerHTML. Use textContent or sanitize input to prevent XSS."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $EL.innerHTML = $USER_INPUT
+          - pattern: |
+              $EL.outerHTML = $USER_INPUT
+      - pattern-not: |
+          $EL.innerHTML = DOMPurify.sanitize(...)
+      - pattern-not: |
+          $EL.innerHTML = sanitize(...)
+
+  - id: js.security.dom-xss-document-write
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected document.write with user-controlled input. Use DOM manipulation methods instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [javascript, typescript]
+    patterns:
+      - pattern: |
+          document.write($USER_INPUT)
+      - pattern-not: |
+          document.write("...")
+
+  - id: js.security.prototype-pollution-merge
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "Detected deep merge with user-controlled input. Sanitize keys to prevent prototype pollution."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-1321"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [javascript, typescript, nodejs]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              merge($TARGET, $USER_INPUT)
+          - pattern: |
+              deepMerge($TARGET, $USER_INPUT)
+          - pattern: |
+              extend($TARGET, $USER_INPUT)
+          - pattern: |
+              _.merge($TARGET, $USER_INPUT)
+          - pattern: |
+              $.extend(true, $TARGET, $USER_INPUT)
+      - pattern-not-inside: |
+          if ($KEY === "__proto__" || $KEY === "constructor" || $KEY === "prototype") { ... }

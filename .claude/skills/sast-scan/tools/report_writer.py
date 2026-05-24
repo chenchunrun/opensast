@@ -117,6 +117,8 @@ def generate_html_report(summary: dict, findings: list[dict], output_path: str) 
     by_file = group_findings_by(findings, "file")
     blocking = [f for f in findings if f.get("is_new") and not f.get("is_suppressed")]
     sorted_findings = sorted(blocking, key=_severity_sort_key, reverse=True)
+    business_logic = [f for f in findings if f.get("tool") in ("dataflow-analyzer", "rbac-analyzer")
+                      and not f.get("is_suppressed")]
 
     grade_color = _grade_color(grade)
     gate = summary.get("gate_result", {})
@@ -131,6 +133,7 @@ def generate_html_report(summary: dict, findings: list[dict], output_path: str) 
 :root {{
   --critical: #dc2626; --high: #ea580c; --medium: #d97706;
   --low: #2563eb; --info: #6b7280; --pass: #16a34a;
+  --business: #7c3aed;
   --bg: #ffffff; --surface: #f8fafc; --border: #e2e8f0;
   --text: #1e293b; --text2: #64748b;
 }}
@@ -150,6 +153,9 @@ h3 {{ font-size: 1rem; margin: 16px 0 8px; }}
 .badge-critical {{ background: var(--critical); }} .badge-high {{ background: var(--high); }}
 .badge-medium {{ background: var(--medium); }} .badge-low {{ background: var(--low); }}
 .badge-info {{ background: var(--info); }} .badge-pass {{ background: var(--pass); }}
+.badge-business {{ background: var(--business); }}
+.dataflow {{ background: #f5f3ff; border-left: 3px solid var(--business); padding: 10px 14px; margin: 8px 0; font-family: monospace; font-size: 0.8rem; overflow-x: auto; }}
+.dataflow-step {{ margin: 2px 0; }} .dataflow-arrow {{ color: var(--business); margin: 0 4px; }}
 .bar-chart {{ display: flex; align-items: flex-end; gap: 8px; height: 120px; padding-top: 8px; }}
 .bar-item {{ flex: 1; display: flex; flex-direction: column; align-items: center; }}
 .bar {{ width: 100%; border-radius: 4px 4px 0 0; min-height: 2px; }}
@@ -247,6 +253,7 @@ code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.
   <div class="tab active" onclick="switchTab('severity')">By Severity</div>
   <div class="tab" onclick="switchTab('category')">By Category</div>
   <div class="tab" onclick="switchTab('file')">By File</div>
+  <div class="tab" onclick="switchTab('business')"><span class="badge badge-business" style="margin-right:4px">{len(business_logic)}</span>Business Logic</div>
   <div class="tab" onclick="switchTab('all')">All Findings</div>
 </div>
 
@@ -258,6 +265,9 @@ code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.
 </div>
 <div id="tab-file" class="tab-content">
 {_findings_by_group(by_file, "Directory")}
+</div>
+<div id="tab-business" class="tab-content">
+{_business_logic_findings(business_logic)}
 </div>
 <div id="tab-all" class="tab-content">
 {_all_findings(sorted_findings)}
@@ -373,6 +383,20 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
             )
         lines.append("")
 
+    # Business Logic Findings
+    bl_findings = [f for f in findings if f.get("tool") in ("dataflow-analyzer", "rbac-analyzer")
+                   and not f.get("is_suppressed")]
+    if bl_findings:
+        lines.extend([
+            "## Business Logic Findings",
+            "",
+            f"_{len(bl_findings)} cross-file authorization and RBAC scope issues detected._",
+            "",
+        ])
+        for i, f in enumerate(sorted(bl_findings, key=_severity_sort_key, reverse=True), 1):
+            lines.extend(_format_business_logic_md(i, f))
+            lines.append("")
+
     lines.append("## Findings by Category")
     lines.append("")
     for cat, cat_findings in sorted(by_category.items()):
@@ -487,6 +511,36 @@ def _esc(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
+def _dataflow_html(steps: list[dict]) -> str:
+    """Render dataflow steps as an HTML trace."""
+    if not steps:
+        return ""
+    parts = []
+    for i, step in enumerate(steps):
+        label = step.get("label", "")
+        file_ref = step.get("file", "")
+        line = step.get("line", "")
+        ref = f"<code>{_esc(file_ref)}:{line}</code> " if file_ref else ""
+        parts.append(f'<div class="dataflow-step">{ref}{_esc(label)}</div>')
+        if i < len(steps) - 1:
+            parts.append('<div class="dataflow-arrow">↓</div>')
+    return "\n".join(parts)
+
+
+def _business_logic_findings(findings: list[dict]) -> str:
+    """Render business logic findings with dataflow visualization."""
+    if not findings:
+        return '<p style="color:var(--text2)">No business logic findings.</p>'
+    parts = [
+        '<p style="color:var(--text2);margin-bottom:16px">'
+        'Cross-file data flow and RBAC scope issues detected by deep analysis. '
+        'These require manual review to confirm exploitability.</p>',
+    ]
+    for f in sorted(findings, key=_severity_sort_key, reverse=True):
+        parts.append(_finding_card(f))
+    return "\n".join(parts)
+
+
 def _grade_color(grade: str) -> str:
     colors = {"A+": "#16a34a", "A": "#16a34a", "B": "#2563eb", "C": "#d97706", "D": "#ea580c", "F": "#dc2626"}
     return colors.get(grade, "#6b7280")
@@ -562,13 +616,16 @@ def _finding_card(f: dict) -> str:
     evidence = f.get("evidence", {})
     source = evidence.get("source", "")
     sink = evidence.get("sink", "")
+    dataflow = evidence.get("dataflow", [])
     recommendation = f.get("recommendation", "")
     confidence = f.get("confidence", "?")
+    tool = f.get("tool", "")
+    is_business = tool in ("dataflow-analyzer", "rbac-analyzer")
 
     card = f"""<div class="finding">
 <div class="finding-header">
   <span class="finding-title">{_esc(f.get('title', 'Untitled'))}</span>
-  <span><span class="badge {badge_cls}">{sev.upper()}</span> <span style="font-size:0.8rem;color:var(--text2)">conf: {confidence}</span></span>
+  <span><span class="badge {badge_cls}">{sev.upper()}</span>{' <span class="badge badge-business">Business Logic</span>' if is_business else ''} <span style="font-size:0.8rem;color:var(--text2)">conf: {confidence}</span></span>
 </div>
 <div class="finding-meta">
   <div><strong>File:</strong> <code>{_esc(f.get('file', '?'))}:{f.get('start_line', '?')}</div>
@@ -578,8 +635,13 @@ def _finding_card(f: dict) -> str:
     if owasp:
         card += f'\n  <div><strong>OWASP:</strong> {_esc(owasp)}</div>'
     card += f'\n</div><p style="margin-top:8px;font-size:0.9rem">{_esc(f.get("message", ""))}</p>'
-    if source:
+    if dataflow:
+        steps_html = _dataflow_html(dataflow)
+        card += f'\n<div class="dataflow">{steps_html}</div>'
+    elif source:
         card += f'\n<div class="evidence">{_esc(source[:300])}</div>'
+    if sink and not dataflow:
+        card += f'\n<div class="evidence" style="border-left-color:var(--critical)"><strong>Sink:</strong> {_esc(sink[:300])}</div>'
     if recommendation:
         rec_short = recommendation[:200] + "..." if len(recommendation) > 200 else recommendation
         card += f'\n<p style="font-size:0.85rem;color:var(--text2)"><strong>Fix:</strong> {_esc(rec_short)}</p>'
@@ -632,5 +694,45 @@ def _format_finding_md(index: int, f: dict) -> list[str]:
         lines.append(f"- **Source:** `{evidence['source'][:120]}`")
     if f.get("recommendation"):
         lines.append(f"- **Fix:** {f['recommendation'][:200]}")
+    lines.append("")
+    return lines
+
+
+def _format_business_logic_md(index: int, f: dict) -> list[str]:
+    """Format a business logic finding with dataflow trace for Markdown."""
+    cwe = ", ".join(f.get("cwe", []))
+    tool = f.get("tool", "?")
+    evidence = f.get("evidence", {})
+    dataflow = evidence.get("dataflow", [])
+    where_clause = evidence.get("where_clause", "")
+
+    lines = [
+        f"#### {index}. [{f.get('severity', '?').upper()}] {f.get('title', 'Untitled')}",
+        "",
+        f"- **File:** `{f.get('file', '?')}:{f.get('start_line', '?')}`",
+        f"- **Analyzer:** {tool} | **CWE:** {cwe or 'N/A'}",
+        f"- **Message:** {f.get('message', '')}",
+    ]
+
+    if dataflow:
+        lines.append("")
+        lines.append("**Data flow trace:**")
+        lines.append("```")
+        for step in dataflow:
+            label = step.get("label", "")
+            file_ref = step.get("file", "")
+            line_no = step.get("line", "")
+            if file_ref:
+                lines.append(f"  {file_ref}:{line_no} — {label}")
+            else:
+                lines.append(f"  {label}")
+        lines.append("```")
+
+    if where_clause:
+        lines.append(f"- **Where clause:** `{where_clause}`")
+
+    if f.get("recommendation"):
+        lines.append(f"- **Fix:** {f['recommendation'][:300]}")
+
     lines.append("")
     return lines

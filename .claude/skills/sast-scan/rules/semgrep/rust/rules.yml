@@ -1,0 +1,382 @@
+rules:
+  - id: rust.security.unsafe-block
+    languages: [rust]
+    severity: WARNING
+    message: "Detected unsafe block. Unsafe code bypasses Rust's safety guarantees. Minimize unsafe usage."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-119"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    pattern: |
+        unsafe { ... }
+
+  - id: rust.security.unsafe-impl
+    languages: [rust]
+    severity: WARNING
+    message: "Detected unsafe impl for Send/Sync. Ensure the type is actually safe to send/share."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-119"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              unsafe impl Send for $TYPE { ... }
+          - pattern: |
+              unsafe impl Sync for $TYPE { ... }
+
+  - id: rust.security.unsafe-fn-pointer
+    languages: [rust]
+    severity: WARNING
+    message: "Detected unsafe fn that can be called from safe code. Consider wrapping in safe API."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-822"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: LOW
+      technology: [rust]
+    pattern: |
+        unsafe fn $FUNC(...) { ... }
+
+  - id: rust.security.raw-pointer-dereference
+    languages: [rust]
+    severity: WARNING
+    message: "Detected raw pointer dereference. This bypasses Rust's borrow checker."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-119"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              *$PTR
+          - pattern: |
+              (*$PTR).$FIELD
+
+  - id: rust.security.unwrap-panic
+    languages: [rust]
+    severity: WARNING
+    message: "Detected .unwrap() which may panic. Use pattern matching or ok_or for error handling."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-755"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern: |
+          $EXPR.unwrap()
+      - pattern-not: |
+          $EXPR.unwrap_or(...)
+      - pattern-not: |
+          $EXPR.unwrap_or_default()
+      - pattern-not: |
+          $EXPR.unwrap_or_else(...)
+
+  - id: rust.security.expect-panic
+    languages: [rust]
+    severity: WARNING
+    message: "Detected .expect() which may panic. Use pattern matching for error handling."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-755"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    pattern: |
+        $EXPR.expect(...)
+
+  - id: rust.security.unchecked-index
+    languages: [rust]
+    severity: WARNING
+    message: "Detected unchecked array indexing. Use .get() for bounds-checked access."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-125"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern: $SLICE[$INDEX]
+      - pattern-not-inside: |
+          if $INDEX < $LEN { ... }
+
+  - id: rust.security.ignored-result
+    languages: [rust]
+    severity: WARNING
+    message: "Detected ignored Result value. Handle potential errors explicitly."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-252"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern: |
+          let _ = $EXPR
+
+  - id: rust.security.command-injection
+    languages: [rust]
+    severity: ERROR
+    message: "Detected shell command execution with user input. Use array-form arguments."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Command::new("sh").arg("-c").arg($USER_INPUT)
+          - pattern: |
+              Command::new("bash").arg("-c").arg($USER_INPUT)
+          - pattern: |
+              Command::new("/bin/sh").arg("-c").arg($USER_INPUT)
+
+  - id: rust.security.sql-injection-format
+    languages: [rust]
+    severity: ERROR
+    message: "Detected SQL query using format!. Use parameterized queries instead."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: HIGH
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              format!("SELECT ...{}...", $USER_INPUT)
+          - pattern: |
+              format!("INSERT ...{}...", $USER_INPUT)
+          - pattern: |
+              format!("UPDATE ...{}...", $USER_INPUT)
+          - pattern: |
+              format!("DELETE ...{}...", $USER_INPUT)
+
+  - id: rust.security.format-string
+    languages: [rust]
+    severity: WARNING
+    message: "Detected print!/println! with potentially user-controlled format string."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-134"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: LOW
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              print!($USER_INPUT)
+          - pattern: |
+              println!($USER_INPUT)
+
+  - id: rust.security.hardcoded-credentials
+    languages: [rust]
+    severity: WARNING
+    message: "Detected hardcoded credential. Use environment variables or config files."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: HIGH
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              let password = "..."
+          - pattern: |
+              let secret = "..."
+          - pattern: |
+              let api_key = "..."
+          - pattern: |
+              const PASSWORD: &str = "..."
+      - pattern-not: |
+          let password = std::env::var(...)
+
+  - id: rust.security.insecure-random
+    languages: [rust]
+    severity: WARNING
+    message: "Detected potentially insecure random. Use OsRng for cryptographic purposes."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-338"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              rand::random()
+          - pattern: |
+              rand::thread_rng()
+      - pattern-not-inside: |
+          use rand::rngs::OsRng;
+
+  - id: rust.security.ssl-verify-disabled
+    languages: [rust]
+    severity: ERROR
+    message: "SSL certificate verification disabled. Remove danger_accept_invalid_certs(true)."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-295"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [rust]
+    patterns:
+      - pattern: |
+          danger_accept_invalid_certs(true)
+
+  - id: rust.security.unwrap-or-default-secret
+    languages: [rust]
+    severity: WARNING
+    message: "Environment variable for secret with hardcoded default. Remove default for sensitive values."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-798"
+      owasp:
+        - "A07:2021-Identification and Authentication Failures"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              std::env::var("SECRET").unwrap_or("...")
+          - pattern: |
+              std::env::var("PASSWORD").unwrap_or("...")
+          - pattern: |
+              std::env::var("API_KEY").unwrap_or("...")
+          - pattern: |
+              std::env::var("TOKEN").unwrap_or("...")
+
+  - id: rust.security.mutex-poisoning
+    languages: [rust]
+    severity: INFO
+    message: "Detected .lock().unwrap() which ignores mutex poisoning. Handle poison explicitly."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-362"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: LOW
+      technology: [rust]
+    pattern: |
+        $MUTEX.lock().unwrap()
+
+  - id: rust.security.file-permission
+    languages: [rust]
+    severity: WARNING
+    message: "Detected overly permissive file permissions. Use restrictive permissions."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-276"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              std::fs::File::open(...).unwrap().set_permissions(0o666)
+          - pattern: |
+              std::fs::create_dir(..., 0o777)
+
+  - id: rust.security.tempfile-insecure
+    languages: [rust]
+    severity: WARNING
+    message: "Detected tempdir with predictable prefix. Use tempfile crate for secure temp files."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-377"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern: |
+          std::env::temp_dir().join("...")
+
+  - id: rust.security.path-traversal
+    languages: [rust]
+    severity: ERROR
+    message: "Detected file read with user-controlled path. Validate to prevent directory traversal."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              std::fs::read_to_string($USER_INPUT)
+          - pattern: |
+              std::fs::read($USER_INPUT)
+          - pattern: |
+              std::fs::write($USER_INPUT, ...)
+      - pattern-not: |
+          std::fs::read_to_string("...")
+
+  - id: rust.security.integer-overflow
+    languages: [rust]
+    severity: WARNING
+    message: "Potential integer overflow. Use checked_add/wrapping_add for safety."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-190"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: LOW
+      technology: [rust]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $X + $Y
+          - pattern: |
+              $X * $Y
+      - pattern-not: |
+          $X.checked_add(...)
+      - pattern-not: |
+          $X.wrapping_add(...)

@@ -420,3 +420,13 @@ def deduplicate_findings(findings: list[dict]) -> list[dict]:
             deduped.append(_merge_group(group))
 
     return deduped
+
+
+__all__ = [
+    "_build",
+    "compute_fingerprint",
+    "deduplicate_findings",
+    "normalize_semgrep",
+    "NORMALIZERS",
+    "SEVERITY_ORDER",
+]
