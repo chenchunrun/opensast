@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opensast"
+version = "0.1.0"
+description = "Multi-language SAST scanning skill for Claude Code"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "CCR" },
+]
+keywords = ["sast", "security", "scanning", "claude-code", "semgrep", "gitleaks", "checkov"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+]
+
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+]
+scanners = [
+    "semgrep",
+    "checkov",
+    "bandit",
+]
+
+[project.urls]
+Homepage = "https://github.com/chenchunrun/opensast"
+Repository = "https://github.com/chenchunrun/opensast"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

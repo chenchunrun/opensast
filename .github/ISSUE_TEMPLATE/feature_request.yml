@@ -1,0 +1,60 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for OpenSAST
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem description
+      description: What problem does this feature solve? What is the pain point today?
+      placeholder: "Currently OpenSAST does not support scanning Swift packages, so iOS/macOS projects go unanalyzed."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or change you would like to see.
+      placeholder: "Add Swift language support by integrating SwiftLint and custom Semgrep rules for common Swift vulnerability patterns."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What alternative solutions or workarounds have you considered?
+      placeholder: "Running SwiftLint manually as a separate step, but this lacks SARIF integration and deduplication."
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any other context, screenshots, references, or links that would help evaluate this request.
+      placeholder: "Related CWE categories: CWE-787, CWE-119. Similar tools support this via plugin X."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language / tool relevance
+      description: Which language or tool category does this feature relate to?
+      options:
+        - multi-language
+        - js-ts
+        - python
+        - java-kotlin
+        - go
+        - csharp
+        - cpp
+        - php
+        - ruby
+        - rust
+        - swift
+        - iac
+    validations:
+      required: false

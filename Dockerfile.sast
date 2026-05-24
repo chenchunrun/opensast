@@ -2,28 +2,52 @@ FROM python:3.12-slim
 
 LABEL maintainer="OpenSAST"
 LABEL description="Multi-language SAST scanning environment"
+LABEL version="1.0.0"
+LABEL org.opencontainers.image.source="https://github.com/nicholasgriffintn/opensast"
+LABEL org.opencontainers.image.title="OpenSAST Scanner"
 
+# Install only the runtime dependencies needed (wget for gitleaks download)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    curl \
     wget \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Python security tools
 RUN pip install --no-cache-dir \
     semgrep \
     checkov \
     pyyaml
 
-RUN curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | \
-    sh -s -- -b /usr/local/bin v8.21.2
+# Install gitleaks via direct binary download with checksum verification
+ARG GITLEAKS_VERSION=8.21.2
+ARG GITLEAKS_CHECKSUM=624a7a40837ff77c382b53e00db670b19e3e4eed8b529a2b80b9154a23f49a30
+RUN wget -q "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+    -O /tmp/gitleaks.tar.gz \
+    && echo "${GITLEAKS_CHECKSUM}  /tmp/gitleaks.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
+    && rm -f /tmp/gitleaks.tar.gz \
+    && gitleaks version
 
+# Install bandit (optional -- best-effort, do not fail the build)
 RUN pip install --no-cache-dir bandit || true
+
+# Create non-root user for running scans
+RUN groupadd --system sast \
+    && useradd --system --gid sast --create-home --home-dir /home/sast sast
 
 WORKDIR /scan
 
 COPY .claude/skills/sast-scan/ /opt/sast-scan/
 
+# Ensure output directory exists and is writable by the scanner user
+RUN mkdir -p /scan/.claude/sast/results \
+    && chown -R sast:sast /scan \
+    && chown -R sast:sast /opt/sast-scan
+
 ENV PATH="/usr/local/bin:${PATH}"
+
+USER sast
 
 ENTRYPOINT ["python3", "/opt/sast-scan/tools/sast_runner.py"]
 CMD ["--target", "/scan", "--profile", "standard", "--format", "all"]

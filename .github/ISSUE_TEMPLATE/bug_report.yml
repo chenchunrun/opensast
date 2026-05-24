@@ -1,0 +1,89 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in OpenSAST
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear and concise description of the bug.
+      placeholder: "OpenSAST crashes when scanning a large Go monorepo with the deep profile."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the behavior?
+      placeholder: |
+        1. Clone repository X
+        2. Run `/sast-scan . --profile deep`
+        3. Wait for the Semgrep phase to complete
+        4. Observe the error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+      placeholder: "The scan should complete and produce a SARIF report with all findings."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened?
+      placeholder: "The scan exits with code 1 after the Semgrep phase and no report is generated."
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Please provide your environment details.
+      placeholder: |
+        - OS: macOS 15.4 / Ubuntu 24.04 / Windows 11
+        - Python version: 3.12.x
+        - Semgrep version: 1.x.x
+        - Gitleaks version: 8.x.x
+        - Checkov version: 3.x.x
+        - Claude Code version: x.x.x
+    validations:
+      required: false
+
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Scan profile used
+      description: Which scan profile was active when the bug occurred?
+      options:
+        - quick
+        - standard
+        - deep
+    validations:
+      required: false
+
+  - type: input
+    id: command
+    attributes:
+      label: Scan command used
+      description: The exact command or slash-command you ran.
+      placeholder: "/sast-scan src --profile deep --format sarif"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste any relevant log output. Please redact any secrets or sensitive paths.
+      placeholder: "Paste log output here."
+      render: shell
+    validations:
+      required: false
