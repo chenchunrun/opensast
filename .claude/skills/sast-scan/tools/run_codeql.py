@@ -16,11 +16,29 @@ LANG_MAP: dict[str, str] = {
 }
 SUPPORTED_LANGUAGES = list(LANG_MAP.keys())
 
-QUERY_SUITES = {
-    "quick": "security-extended",
-    "standard": "security-extended",
-    "deep": "security-and-quality",
+LANG_PACK_MAP: dict[str, str] = {
+    "python": "python", "javascript": "javascript", "java": "java",
+    "go": "go", "csharp": "csharp", "cpp": "cpp",
+    "ruby": "ruby", "swift": "swift",
 }
+
+QUERY_SUITES = {
+    "quick": "Security",
+    "standard": "Security",
+    "deep": "",
+}
+
+
+def _resolve_query_suite(language: str, profile: str, fallback: str) -> str:
+    lang_key = LANG_PACK_MAP.get(language)
+    if not lang_key:
+        return fallback
+    suite_suffix = QUERY_SUITES.get(profile)
+    if suite_suffix is None:
+        return fallback
+    if not suite_suffix:
+        return f"codeql/{lang_key}-queries"
+    return f"codeql/{lang_key}-queries:{suite_suffix}"
 
 
 def _result(version: str | None, exit_code: int | None = None,
@@ -280,7 +298,8 @@ def run_codeql(
                     logger.debug("Cache save failed for %s: %s", lang, e)
 
         logger.info("Analyzing CodeQL database for %s (suite=%s)", lang, effective_suite)
-        result = _analyze_database(db_path, lang_sarif, effective_suite, analysis_timeout, version)
+        lang_suite = _resolve_query_suite(lang, profile, effective_suite)
+        result = _analyze_database(db_path, lang_sarif, lang_suite, analysis_timeout, version)
         if result["success"] and result["sarif_path"]:
             try:
                 with open(result["sarif_path"], encoding="utf-8") as f:
