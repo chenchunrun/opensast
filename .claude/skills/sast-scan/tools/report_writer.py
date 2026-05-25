@@ -507,7 +507,9 @@ def generate_claude_summary(summary: dict, findings: list[dict]) -> str:
 
 # ── HTML helper functions ──────────────────────────────────────────
 
-def _esc(text: str) -> str:
+def _esc(text: str | None) -> str:
+    if not text:
+        return ""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
@@ -613,11 +615,11 @@ def _finding_card(f: dict) -> str:
     badge_cls = f"badge-{sev}"
     cwe = ", ".join(f.get("cwe", []))
     owasp = ", ".join(f.get("owasp", []))
-    evidence = f.get("evidence", {})
-    source = evidence.get("source", "")
-    sink = evidence.get("sink", "")
-    dataflow = evidence.get("dataflow", [])
-    recommendation = f.get("recommendation", "")
+    evidence = f.get("evidence") or {}
+    source = evidence.get("source") or ""
+    sink = evidence.get("sink") or ""
+    dataflow = evidence.get("dataflow") or []
+    recommendation = f.get("recommendation") or ""
     confidence = f.get("confidence", "?")
     tool = f.get("tool", "")
     is_business = tool in ("dataflow-analyzer", "rbac-analyzer")
