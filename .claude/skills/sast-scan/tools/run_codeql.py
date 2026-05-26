@@ -23,9 +23,9 @@ LANG_PACK_MAP: dict[str, str] = {
 }
 
 QUERY_SUITES = {
-    "quick": "Security",
-    "standard": "Security",
-    "deep": "",
+    "quick": "security-extended",
+    "standard": "security-extended",
+    "deep": "security-and-quality",
 }
 
 
@@ -36,8 +36,6 @@ def _resolve_query_suite(language: str, profile: str, fallback: str) -> str:
     suite_suffix = QUERY_SUITES.get(profile)
     if suite_suffix is None:
         return fallback
-    if not suite_suffix:
-        return f"codeql/{lang_key}-queries"
     return f"codeql/{lang_key}-queries:{suite_suffix}"
 
 
@@ -228,6 +226,26 @@ def shlex_join(args: list[str]) -> str:
         return " ".join(args)
 
 
+def _is_repo_build_command(build_cmd: list[str] | None) -> bool:
+    if not build_cmd:
+        return False
+    cmd = build_cmd[0]
+    return cmd.startswith("./") or cmd in {"make", "cmake"}
+
+
+def _is_allowed_build_command(
+    build_cmd: list[str] | None,
+    *,
+    allow_package_manager_builds: bool,
+    allow_repo_build_commands: bool,
+) -> bool:
+    if not build_cmd:
+        return True
+    if _is_repo_build_command(build_cmd):
+        return allow_repo_build_commands
+    return allow_package_manager_builds
+
+
 # --- Main entry point ---
 
 
@@ -239,9 +257,13 @@ def run_codeql(
     timeout: int = 600,
     profile: str = "standard",
     enable_cache: bool = True,
+    allow_package_manager_builds: bool = True,
+    allow_repo_build_commands: bool = False,
 ) -> dict:
     if not shutil.which("codeql"):
         return _result(None, error_message="codeql CLI is not installed. Install: https://github.com/github/codeql-cli-binaries")
+    if not os.path.isdir(target):
+        return _result(None, error_message=f"Target path does not exist or is not a directory: {target}")
 
     os.makedirs(output_dir, exist_ok=True)
     version = _get_version()
@@ -268,6 +290,16 @@ def run_codeql(
         lang_sarif = os.path.join(output_dir, f"codeql-{lang}.sarif")
 
         build_cmd = detect_build_command(target, lang)
+        if not _is_allowed_build_command(
+            build_cmd,
+            allow_package_manager_builds=allow_package_manager_builds,
+            allow_repo_build_commands=allow_repo_build_commands,
+        ):
+            errors.append(
+                f"Database creation skipped for {lang}: build command requires explicit opt-in "
+                f"({shlex_join(build_cmd)})"
+            )
+            continue
         needs_create = True
 
         if enable_cache and _is_cache_valid(cache_dir, lang, target):
@@ -337,12 +369,25 @@ def main() -> None:
     parser.add_argument("-p", "--profile", default="standard",
                         choices=["quick", "standard", "deep"])
     parser.add_argument("--no-cache", action="store_true", help="Disable database caching")
+    parser.add_argument(
+        "--allow-package-manager-builds",
+        action="store_true",
+        help="Allow CodeQL to invoke package-manager build commands such as mvn, gradle, go, or dotnet",
+    )
+    parser.add_argument(
+        "--allow-repo-build-commands",
+        action="store_true",
+        help="Allow CodeQL to invoke repository-local build entrypoints such as ./mvnw, ./gradlew, make, or cmake",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
     result = run_codeql(
         args.target, args.output_dir, args.language, args.query_suite,
-        args.timeout, args.profile, enable_cache=not args.no_cache,
+        args.timeout, args.profile,
+        enable_cache=not args.no_cache,
+        allow_package_manager_builds=args.allow_package_manager_builds,
+        allow_repo_build_commands=args.allow_repo_build_commands,
     )
     print(json.dumps(result, indent=2))
 

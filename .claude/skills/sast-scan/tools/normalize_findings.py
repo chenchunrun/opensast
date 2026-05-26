@@ -9,6 +9,9 @@ SEVERITY_MAP_BANDIT = {"high": "high", "medium": "medium", "low": "low"}
 CONFIDENCE_MAP_BANDIT = {"high": "high", "medium": "medium", "low": "low"}
 SEVERITY_MAP_GOSEC = {"high": "high", "medium": "medium", "low": "low", "warning": "medium", "error": "high", "note": "info"}
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
+VALID_LLM_SEVERITIES = {"critical", "high", "medium", "low", "info"}
+VALID_LLM_CONFIDENCE = {"high", "medium", "low"}
+VALID_LLM_TRIAGE = {"confirmed", "likely", "needs-review", "false-positive", "active"}
 
 
 def _normalize_path(path: str) -> str:
@@ -324,6 +327,115 @@ def normalize_codeql(sarif_data: dict) -> list[dict]:
     return findings
 
 
+def validate_llm_findings(data: dict | list[dict]) -> tuple[bool, list[str]]:
+    if isinstance(data, dict):
+        raw_findings = data.get("findings", [])
+    elif isinstance(data, list):
+        raw_findings = data
+    else:
+        return False, ["LLM findings payload must be a list or an object with a 'findings' key"]
+
+    if not isinstance(raw_findings, list):
+        return False, ["LLM findings 'findings' field must be a list"]
+
+    errors: list[str] = []
+    for idx, item in enumerate(raw_findings):
+        prefix = f"finding[{idx}]"
+        if not isinstance(item, dict):
+            errors.append(f"{prefix}: entry must be an object")
+            continue
+
+        for key in ("rule_id", "title", "severity", "file", "message"):
+            if not item.get(key):
+                errors.append(f"{prefix}: missing required field '{key}'")
+
+        severity = str(item.get("severity", "")).lower()
+        if severity and severity not in VALID_LLM_SEVERITIES:
+            errors.append(f"{prefix}: invalid severity '{item.get('severity')}'")
+
+        confidence = str(item.get("confidence", "medium")).lower()
+        if confidence and confidence not in VALID_LLM_CONFIDENCE:
+            errors.append(f"{prefix}: invalid confidence '{item.get('confidence')}'")
+
+        triage = item.get("triage")
+        if triage is not None:
+            if not isinstance(triage, dict):
+                errors.append(f"{prefix}: triage must be an object")
+            else:
+                status = triage.get("status")
+                if status and status not in VALID_LLM_TRIAGE:
+                    errors.append(f"{prefix}: invalid triage.status '{status}'")
+
+        evidence = item.get("evidence")
+        if evidence is not None:
+            if not isinstance(evidence, dict):
+                errors.append(f"{prefix}: evidence must be an object")
+            else:
+                dataflow = evidence.get("dataflow", [])
+                if dataflow is not None and not isinstance(dataflow, list):
+                    errors.append(f"{prefix}: evidence.dataflow must be a list")
+
+        for key in ("start_line", "end_line"):
+            if key in item and item[key] is not None and not isinstance(item[key], int):
+                errors.append(f"{prefix}: '{key}' must be an integer")
+
+    return len(errors) == 0, errors
+
+
+def normalize_llm_findings(data: dict | list[dict]) -> list[dict]:
+    is_valid, _ = validate_llm_findings(data)
+    if not is_valid:
+        return []
+
+    if isinstance(data, dict):
+        raw_findings = data.get("findings", [])
+    elif isinstance(data, list):
+        raw_findings = data
+    else:
+        return []
+
+    findings: list[dict] = []
+    for item in raw_findings:
+        if not isinstance(item, dict):
+            continue
+
+        finding = _build(
+            tool=item.get("tool", "llm-analyzer"),
+            rule_id=item.get("rule_id", "llm.unknown"),
+            title=item.get("title", item.get("rule_id", "LLM finding")),
+            severity=item.get("severity", "medium"),
+            file_path=item.get("file", ""),
+            start_line=item.get("start_line", 0),
+            end_line=item.get("end_line", item.get("start_line", 0)),
+            message=item.get("message", item.get("title", "LLM finding")),
+            cwe=item.get("cwe", []),
+            owasp=item.get("owasp", []),
+            evidence=item.get("evidence", {"source": "", "sink": "", "dataflow": []}),
+            recommendation=item.get("recommendation", ""),
+            language=item.get("language", ""),
+            confidence=item.get("confidence", "medium"),
+        )
+
+        for key in (
+            "triage",
+            "analysis_enrichment",
+            "llm_analysis_notes",
+            "confidence_score",
+            "reachability",
+            "context",
+        ):
+            if key in item:
+                finding[key] = item[key]
+
+        for key in ("is_new", "is_suppressed", "suppression_reason"):
+            if key in item:
+                finding[key] = item[key]
+
+        findings.append(finding)
+
+    return findings
+
+
 NORMALIZERS: dict[str, callable] = {
     "semgrep": normalize_semgrep,
     "gitleaks": normalize_gitleaks,
@@ -331,6 +443,7 @@ NORMALIZERS: dict[str, callable] = {
     "bandit": normalize_bandit,
     "gosec": normalize_gosec,
     "codeql": normalize_codeql,
+    "llm-analyzer": normalize_llm_findings,
 }
 
 
@@ -427,6 +540,8 @@ __all__ = [
     "compute_fingerprint",
     "deduplicate_findings",
     "normalize_semgrep",
+    "validate_llm_findings",
+    "normalize_llm_findings",
     "NORMALIZERS",
     "SEVERITY_ORDER",
 ]

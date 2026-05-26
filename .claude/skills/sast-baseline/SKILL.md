@@ -26,30 +26,21 @@ $ARGUMENTS
 ### create
 Generate a new baseline from the latest scan results:
 ```bash
-python3 -c "
-import sys; sys.path.insert(0, '.claude/skills/sast-scan/tools')
-from baseline import generate_baseline, save_baseline
-import json
-findings = json.load(open('.claude/sast/results/findings.json'))
-data = findings.get('findings', findings) if isinstance(findings, dict) else findings
-bl = generate_baseline(data)
-save_baseline('.claude/sast/baseline.json', bl)
-print(f'Baseline created with {len(bl[\"fingerprints\"])} entries')
-"
+python3 .claude/skills/sast-scan/tools/baseline_manager.py create
 ```
 
 ### show
 Display the current baseline:
 
 ```bash
-python3 -c "
-import sys; sys.path.insert(0, '.claude/skills/sast-scan/tools')
-from baseline import load_baseline
-import json
-bl = load_baseline('.claude/sast/baseline.json')
-print(f'Baseline: {len(bl[\"fingerprints\"])} known findings')
-print(f'Suppressions: {len(bl.get(\"suppressions\", []))}')
-"
+python3 .claude/skills/sast-scan/tools/baseline_manager.py show
+```
+
+### update
+Refresh the baseline with the latest findings:
+
+```bash
+python3 .claude/skills/sast-scan/tools/baseline_manager.py update
 ```
 
 ### suppress

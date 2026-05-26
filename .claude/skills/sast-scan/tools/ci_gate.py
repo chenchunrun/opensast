@@ -18,9 +18,11 @@ def evaluate_gate(
     findings: list[dict],
     fail_on: str = "high",
     baseline_enabled: bool = False,
+    review_findings_blocking: bool = False,
 ) -> dict:
     threshold = SEVERITY_ORDER.get(fail_on, 3)
     blocking = []
+    review_only = []
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
 
     for f in findings:
@@ -32,6 +34,11 @@ def evaluate_gate(
             continue
         if f.get("is_suppressed", False):
             continue
+        triage_status = (f.get("triage") or {}).get("status")
+        if triage_status == "needs-review":
+            review_only.append(f)
+            if not review_findings_blocking:
+                continue
         if sev_order >= threshold:
             blocking.append(f)
 
@@ -40,6 +47,8 @@ def evaluate_gate(
         "passed": passed,
         "fail_on": fail_on,
         "blocking_count": len(blocking),
+        "review_findings_blocking": review_findings_blocking,
+        "review_only_count": len(review_only),
         "blocking_by_severity": {},
         "total_findings": len(findings),
         "severity_counts": counts,

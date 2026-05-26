@@ -1,0 +1,29 @@
+# ruleid: js.security.unpinned-dependency
+"axios": "^1.7.0"
+
+# ok: js.security.unpinned-dependency
+"axios": "1.7.0"
+
+# ruleid: js.security.known-vulnerable-package-lodash-old
+"lodash": "4.17.20"
+
+# ok: js.security.known-vulnerable-package-lodash-old
+"lodash": "4.17.21"
+
+# ruleid: js.security.known-vulnerable-package-express-old
+"express": "3.21.2"
+
+# ok: js.security.known-vulnerable-package-express-old
+"express": "4.18.2"
+
+# ruleid: py.security.known-vulnerable-package-flask-old
+flask = "1.1.4"
+
+# ok: py.security.known-vulnerable-package-flask-old
+flask = "2.2.5"
+
+# ruleid: js.security.missing-lockfile
+package-lock.json
+
+# ok: js.security.missing-lockfile
+pnpm-lock.yaml

@@ -73,6 +73,7 @@ def test_apply_filters_reduces_test_code_severity():
     assert result[0]["severity"] == "medium"
     assert result[0]["context"] == "test_code"
     assert result[0]["original_severity"] == "high"
+    assert result[0]["triage"]["status"] == "needs-review"
 
 
 def test_apply_filters_skips_generated_code():
@@ -83,6 +84,7 @@ def test_apply_filters_skips_generated_code():
     result = apply_finding_filters(findings, "/tmp/project")
     assert len(result) == 1
     assert result[0]["is_suppressed"] is True
+    assert result[0]["triage"]["status"] == "false-positive"
 
 
 def test_apply_filters_skip_action_removes_finding():
@@ -98,12 +100,14 @@ def test_apply_filters_skip_action_removes_finding():
 def test_apply_filters_leaves_normal_code():
     findings = [
         {"file": "src/app.py", "severity": "high", "language": "python",
-         "start_line": 10, "tool": "semgrep", "rule_id": "R1"},
+         "start_line": 10, "tool": "semgrep", "rule_id": "R1", "message": "password flows into sink",
+         "evidence": {"source": "request.password", "sink": "execute()", "dataflow": []}},
     ]
     result = apply_finding_filters(findings, "/tmp/project")
     assert len(result) == 1
     assert result[0]["severity"] == "high"
     assert "context" not in result[0]
+    assert result[0]["triage"]["status"] == "active"
 
 
 def test_apply_filters_disabled():
@@ -147,3 +151,15 @@ def test_reachability_not_near_entry_point():
         assert result["is_reachable"] is True
         assert result["confidence"] == "low"
         assert result["reason"] == "no_entry_points_detected"
+
+
+def test_apply_filters_low_confidence_marks_needs_review():
+    findings = [
+        {"file": "src/app.py", "severity": "medium", "language": "python",
+         "start_line": 10, "tool": "semgrep", "rule_id": "R1", "message": "generic issue"},
+    ]
+    config = {"finding_filters": {"confidence_scoring": {"enabled": True, "minimum_score": 0.0}}}
+    result = apply_finding_filters(findings, "/tmp/project", config)
+    assert len(result) == 1
+    assert result[0]["confidence_score"] <= 0.5
+    assert result[0]["triage"]["status"] == "needs-review"

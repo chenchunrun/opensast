@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 def run_gitleaks(target: str, output_dir: str, timeout: int = 120, no_git: bool = False) -> dict:
     if not shutil.which("gitleaks"):
         return {"tool": "gitleaks", "version": None, "exit_code": None, "sarif_path": None, "json_path": None, "error_message": "gitleaks is not installed", "success": False}
+    if not os.path.exists(target):
+        return {"tool": "gitleaks", "version": None, "exit_code": None, "sarif_path": None, "json_path": None, "error_message": f"Target path does not exist: {target}", "success": False}
 
     os.makedirs(output_dir, exist_ok=True)
 

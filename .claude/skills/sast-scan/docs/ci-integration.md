@@ -4,6 +4,10 @@
 
 A ready-to-use workflow is provided at `.github/workflows/sast.yml`.
 
+For current capability status, gate mode behavior, and environment caveats, also read:
+
+- `.claude/skills/sast-scan/docs/status-and-usage.md`
+
 ### Setup
 
 1. Copy the workflow file to your repository:

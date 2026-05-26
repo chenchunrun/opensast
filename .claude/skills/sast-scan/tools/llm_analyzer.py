@@ -594,6 +594,15 @@ def _output_format_schema() -> dict:
                 "sink": "Where the vulnerability manifests",
                 "dataflow": [{"file": "...", "line": 0, "label": "step description"}],
             },
+            "triage": {
+                "status": "confirmed|likely|needs-review|false-positive",
+                "rationale": "Short reasoning for the verdict",
+            },
+            "analysis_enrichment": {
+                "origin": "llm-discovery|deep-analysis|rule-engine",
+                "evidence_strength": "dataflow-trace|source-sink|context-only|none",
+                "exploitability": "high|medium|low",
+            },
             "recommendation": "Specific fix guidance with code example",
             "language": "typescript|python|...",
             "llm_analysis_notes": "Your reasoning about why this is/is not a real finding",

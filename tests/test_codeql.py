@@ -20,6 +20,8 @@ _spec.loader.exec_module(_codeql)
 resolve_languages = _codeql._resolve_languages
 detect_build_command = _codeql.detect_build_command
 run_codeql = _codeql.run_codeql
+is_repo_build_command = _codeql._is_repo_build_command
+is_allowed_build_command = _codeql._is_allowed_build_command
 
 
 # --- Language resolution ---
@@ -113,6 +115,32 @@ def test_detect_python_no_build():
 def test_detect_javascript_no_build():
     with tempfile.TemporaryDirectory() as tmpdir:
         assert detect_build_command(tmpdir, "javascript") is None
+
+
+def test_repo_build_command_detection():
+    assert is_repo_build_command(["./mvnw", "compile"])
+    assert is_repo_build_command(["make"])
+    assert is_repo_build_command(["cmake", "--build", "."])
+    assert not is_repo_build_command(["mvn", "compile"])
+    assert not is_repo_build_command(["go", "build", "./..."])
+
+
+def test_allow_build_command_policy():
+    assert is_allowed_build_command(
+        ["mvn", "compile"],
+        allow_package_manager_builds=True,
+        allow_repo_build_commands=False,
+    )
+    assert not is_allowed_build_command(
+        ["./gradlew", "compileJava"],
+        allow_package_manager_builds=True,
+        allow_repo_build_commands=False,
+    )
+    assert is_allowed_build_command(
+        ["./gradlew", "compileJava"],
+        allow_package_manager_builds=True,
+        allow_repo_build_commands=True,
+    )
 
 
 # --- CodeQL not installed ---

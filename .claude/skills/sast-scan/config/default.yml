@@ -87,6 +87,7 @@ history:
   retention_days: 90
 
 gate:
+  review_findings_blocking: false
   trend:
     enabled: false
     max_new_high: 0
@@ -113,6 +114,8 @@ tools:
     query_suite: security-extended
     enable_cache: true
     cache_dir: .claude/sast/codeql-cache
+    allow_package_manager_builds: true
+    allow_repo_build_commands: false
 
 archetype_detection:
   enabled: true
@@ -148,3 +151,6 @@ llm_orchestration:
         - exec.Command
         - "eval("
       suppress_patterns: []
+
+llm_findings:
+  import_file: null

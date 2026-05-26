@@ -309,13 +309,17 @@ rules:
     patterns:
       - pattern-either:
           - pattern: |
-              $BODY, $ERR := $RESP.Body
+              $RESP, $ERR := http.Get(...)
           - pattern: |
               $FILE, $ERR := os.Open(...)
       - pattern-not-inside: |
-          $BODY, $ERR := $RESP.Body
+          $RESP, $ERR := http.Get(...)
           ...
-          defer $BODY.Close()
+          defer $RESP.Body.Close()
+      - pattern-not-inside: |
+          $FILE, $ERR := os.Open(...)
+          ...
+          defer $FILE.Close()
 
   - id: go.security.hardcoded-credentials
     languages: [go]
@@ -394,13 +398,29 @@ rules:
     patterns:
       - pattern-either:
           - pattern: |
-              os.Getenv("SECRET") || "..."
+              $SECRET := os.Getenv("SECRET")
+              ...
+              if $SECRET == "" {
+                  $SECRET = "..."
+              }
           - pattern: |
-              os.Getenv("PASSWORD") || "..."
+              $PASSWORD := os.Getenv("PASSWORD")
+              ...
+              if $PASSWORD == "" {
+                  $PASSWORD = "..."
+              }
           - pattern: |
-              os.Getenv("API_KEY") || "..."
+              $APIKEY := os.Getenv("API_KEY")
+              ...
+              if $APIKEY == "" {
+                  $APIKEY = "..."
+              }
           - pattern: |
-              os.Getenv("TOKEN") || "..."
+              $TOKEN := os.Getenv("TOKEN")
+              ...
+              if $TOKEN == "" {
+                  $TOKEN = "..."
+              }
 
   - id: go.security.sql-injection-gorm
     languages: [go]

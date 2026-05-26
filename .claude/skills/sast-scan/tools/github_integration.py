@@ -4,6 +4,17 @@ import json
 import logging
 import os
 import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from report_writer import summarize_analysis_enrichment
+
+
+def _gate_mode_label(gate: dict) -> tuple[str, str]:
+    if gate.get("review_findings_blocking"):
+        return ("strict", "needs-review findings also block")
+    return ("standard", "needs-review findings are advisory")
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +64,8 @@ def format_pr_comment(summary: dict, findings: list[dict]) -> str:
     new = summary.get("new_findings", 0)
     blocking = summary.get("blocking_findings", 0)
 
-    lines.append(f"**{total} findings** ({new} new, {blocking} blocking)\n")
+    review = summary.get("review_findings", 0)
+    lines.append(f"**{total} findings** ({new} new, {blocking} blocking, {review} needs review)\n")
     lines.append("| Severity | Count |")
     lines.append("|----------|-------|")
     for level in ("critical", "high", "medium", "low"):
@@ -61,20 +73,58 @@ def format_pr_comment(summary: dict, findings: list[dict]) -> str:
             lines.append(f"| {level.capitalize()} | {sev[level]} |")
 
     gate = summary.get("gate_result", {})
+    gate_mode, gate_mode_desc = _gate_mode_label(gate)
     if gate.get("passed"):
-        lines.append("\n**Gate: PASSED**")
+        lines.append(f"\n**Gate: PASSED** ({gate_mode} mode; {gate_mode_desc})")
     else:
-        lines.append(f"\n**Gate: FAILED** ({gate.get('blocking_count', 0)} blocking findings)")
+        lines.append(
+            f"\n**Gate: FAILED** ({gate.get('blocking_count', 0)} blocking findings, "
+            f"{gate_mode} mode; {gate_mode_desc})"
+        )
+
+    enrichment = summary.get("analysis_enrichment") or summarize_analysis_enrichment(findings)
+    if enrichment:
+        origins = ", ".join(f"{k}={v}" for k, v in enrichment.get("by_origin", {}).items() if v > 0)
+        triage = ", ".join(f"{k}={v}" for k, v in enrichment.get("by_triage", {}).items() if v > 0)
+        lines.append("\n### Analysis Enrichment\n")
+        if summary.get("project_archetype"):
+            lines.append(f"- Archetype: `{summary['project_archetype']}`")
+        if summary.get("llm_analysis_targets") is not None:
+            lines.append(
+                f"- LLM targets: validation={summary.get('llm_analysis_targets', 0)}, "
+                f"discovery={summary.get('llm_discovery_targets', 0)}"
+            )
+        if origins:
+            lines.append(f"- Origins: {origins}")
+        if triage:
+            lines.append(f"- Triage: {triage}")
+        discovery = enrichment.get("llm_discovery_categories", {})
+        if discovery:
+            lines.append("- LLM discovery categories: " + ", ".join(f"{k}={v}" for k, v in discovery.items()))
 
     unsuppressed = [f for f in findings if not f.get("is_suppressed") and f.get("is_new")]
-    if unsuppressed:
-        lines.append("\n### Top Findings\n")
-        for f in unsuppressed[:5]:
+    blocking_findings = [f for f in unsuppressed if (f.get("triage") or {}).get("status") != "needs-review"]
+    review_findings = [f for f in unsuppressed if (f.get("triage") or {}).get("status") == "needs-review"]
+    if blocking_findings:
+        lines.append("\n### Blocking Findings\n")
+        for f in blocking_findings[:5]:
             sev_str = f.get("severity", "info").upper()
             file_str = f.get("file", "")
             line_str = f.get("start_line", "")
             title = f.get("title", f.get("rule_id", ""))
-            lines.append(f"- **[{sev_str}]** {title} — `{file_str}:{line_str}`")
+            triage = (f.get("triage") or {}).get("status")
+            note = f" ({triage})" if triage else ""
+            lines.append(f"- **[{sev_str}]** {title}{note} — `{file_str}:{line_str}`")
+    if review_findings:
+        lines.append("\n### Needs Review\n")
+        for f in review_findings[:5]:
+            sev_str = f.get("severity", "info").upper()
+            file_str = f.get("file", "")
+            line_str = f.get("start_line", "")
+            title = f.get("title", f.get("rule_id", ""))
+            rationale = (f.get("triage") or {}).get("rationale", "")
+            note = f" — {rationale}" if rationale else ""
+            lines.append(f"- **[{sev_str}]** {title} — `{file_str}:{line_str}`{note}")
 
     return "\n".join(lines)
 

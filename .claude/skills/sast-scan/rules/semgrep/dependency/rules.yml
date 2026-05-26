@@ -2,7 +2,7 @@ rules:
   # OWASP A06:2021 - Vulnerable and Outdated Components
 
   - id: js.security.unpinned-dependency
-    languages: [json]
+    languages: [generic]
     severity: WARNING
     message: "Dependency using caret (^) or tilde (~) range instead of pinned version. Pin exact versions for reproducible builds."
     metadata:
@@ -22,7 +22,7 @@ rules:
           regex: '^\^|~'
 
   - id: js.security.known-vulnerable-package-lodash-old
-    languages: [json]
+    languages: [generic]
     severity: WARNING
     message: "lodash < 4.17.21 has prototype pollution vulnerability. Upgrade to latest version."
     metadata:
@@ -41,7 +41,7 @@ rules:
           regex: '^\^?0\.|^\^?1\.|^\^?2\.|^\^?3\.|^\^?4\.(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17\.0|17\.1[0-9]|17\.2[01])'
 
   - id: js.security.known-vulnerable-package-express-old
-    languages: [json]
+    languages: [generic]
     severity: WARNING
     message: "Express < 4.18.0 has known security issues. Upgrade to latest version."
     metadata:

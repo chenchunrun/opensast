@@ -10,6 +10,7 @@ allowed-tools:
   - Edit
   - Write
   - "Bash(python3 .claude/skills/sast-scan/tools/sast_runner.py *)"
+  - "Bash(python3 .claude/skills/sast-scan/tools/fix_finding.py *)"
 ---
 
 # SAST Finding Fix
@@ -34,21 +35,27 @@ $ARGUMENTS
 
 ## Workflow
 
-1. Read findings from `.claude/sast/results/findings.json`.
-2. Locate the specific finding by ID or fingerprint.
-3. Read the vulnerable code file and surrounding context.
-4. Analyze the vulnerability:
+1. Run the fix helper when possible:
+
+```bash
+python3 .claude/skills/sast-scan/tools/fix_finding.py <finding-id-or-fingerprint>
+```
+
+2. Read findings from `.claude/sast/results/findings.json`.
+3. Locate the specific finding by ID or fingerprint.
+4. Read the vulnerable code file and surrounding context.
+5. Analyze the vulnerability:
    - What is the source of tainted data?
    - What is the dangerous sink?
    - What sanitization or validation is missing?
-5. Generate a minimal fix:
+6. Generate a minimal fix:
    - Prefer parameterized queries over string formatting
    - Prefer allowlists over blocklists
    - Prefer safe APIs over dangerous ones
    - Add input validation when needed
-6. If `--apply`: Apply the fix using Edit tool.
-7. If `--test`: Re-run `sast_runner.py` to verify the fix resolves the finding.
-8. Report the result.
+7. If `--apply`: only enter explicit fix mode; the helper still produces guidance rather than editing files automatically.
+8. If `--test`: re-run a targeted scan to verify the fix area.
+9. Report the result.
 
 ## Fix templates by vulnerability type
 

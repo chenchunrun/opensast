@@ -1134,8 +1134,15 @@ def generate_analysis_plan(
                 "cwe": ["CWE-XXX"],
                 "owasp": ["A0X:2021-..."],
                 "evidence": {"source": "...", "sink": "...", "dataflow": []},
+                "triage": {"status": "confirmed|likely|needs-review|false-positive", "rationale": "..."},
+                "analysis_enrichment": {
+                    "origin": "llm-discovery|deep-analysis|rule-engine",
+                    "evidence_strength": "dataflow-trace|source-sink|context-only|none",
+                    "exploitability": "high|medium|low",
+                },
                 "recommendation": "fix guidance",
                 "language": "...",
+                "llm_analysis_notes": "analysis reasoning",
             },
         },
     }

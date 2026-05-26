@@ -320,6 +320,8 @@ def test_generate_plan_includes_output_format():
     assert "output_format" in plan
     assert "schema" in plan["output_format"]
     assert "tool" in plan["output_format"]["schema"]
+    assert "triage" in plan["output_format"]["schema"]
+    assert "analysis_enrichment" in plan["output_format"]["schema"]
 
 
 def test_generate_plan_archetype_in_context():

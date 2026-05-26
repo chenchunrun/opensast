@@ -26,6 +26,7 @@ YOU (Claude) are the primary analyzer that validates, contextualizes, and enrich
 - Prefer local scanning; do not upload code externally.
 - Do not install tools automatically unless the user explicitly asks.
 - Do not modify source code unless the user explicitly asks for remediation.
+- Treat deep CodeQL builds as trust-sensitive. Do not enable repository-local build commands unless the repository is trusted.
 - If scanner output and code context disagree, explain the uncertainty.
 - Prioritize actionable findings over noisy findings.
 - **You are the primary analyzer** — rule findings are INPUT for your validation, not final output.
@@ -107,25 +108,9 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py $ARGUMENTS
 
    **Time budget**: Spend 30% on Phase A (quick dismiss). Spend 70% on Phase B (real analysis).
    Phase B findings are the highest value — they find what no rule can.
-        "project_archetype": "web-app",
-        "llm_analysis_complete": true,
-        "targets_analyzed": 15,
-        "findings_validated": 3,
-        "findings_dismissed": 12,
-        "findings": [...],
-        "dismissed_targets": [{"target_id": "T-003", "reason": "CLI tool - exec.Command is normal functionality"}],
-        "analysis_notes": "Summary of key observations"
-      }
-      ```
 
-   **Time budget**: Spend 70% on critical/high targets. Quick-dismiss obvious FP.
-   Target: validate all findings in the plan.
-
-8. **Merge findings**: Read `.claude/sast/results/llm-findings.json`.
-   - LLM-validated findings are AUTHORITATIVE — they override rule-based severity
-   - Rule findings that Claude dismissed should be marked `dismissed_by_llm: true`
-   - Rule findings not in the plan (below threshold) keep original severity
-   - New LLM-discovered findings get `tool: "llm-analyzer"`
+8. If the user wants the LLM findings merged into the main pipeline, re-run `/sast-scan`
+   with `--llm-findings .claude/sast/results/llm-findings.json`.
 9. Explain the most important findings to the user, grouped by severity.
 10. Highlight blocking issues based on the configured gate.
 11. Provide remediation guidance with code examples.

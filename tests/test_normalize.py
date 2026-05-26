@@ -15,7 +15,9 @@ from normalize_findings import (
     normalize_codeql,
     normalize_gitleaks,
     normalize_gosec,
+    normalize_llm_findings,
     normalize_semgrep,
+    validate_llm_findings,
 )
 
 
@@ -482,10 +484,63 @@ def test_normalizers_dict_contains_all_tools():
     assert "bandit" in NORMALIZERS
     assert "gosec" in NORMALIZERS
     assert "codeql" in NORMALIZERS
+    assert "llm-analyzer" in NORMALIZERS
 
 
 def test_normalizers_unknown_tool_falls_through():
     assert NORMALIZERS.get("unknown-tool", normalize_semgrep) is normalize_semgrep
+
+
+def test_normalize_llm_findings():
+    findings = normalize_llm_findings([
+        {
+            "tool": "llm-analyzer",
+            "rule_id": "llm.idor-risk",
+            "title": "Potential IDOR",
+            "severity": "high",
+            "confidence": "medium",
+            "file": "api/users.py",
+            "start_line": 42,
+            "end_line": 42,
+            "message": "Ownership check missing",
+            "cwe": ["CWE-639"],
+            "owasp": ["A01:2021-Broken Access Control"],
+            "evidence": {
+                "source": "request.args['id']",
+                "sink": "db.query()",
+                "dataflow": [{"file": "api/users.py", "line": 42, "label": "source"}],
+            },
+            "recommendation": "Add ownership verification",
+            "language": "python",
+            "triage": {"status": "likely", "rationale": "Needs ownership validation"},
+            "analysis_enrichment": {"origin": "llm-discovery", "evidence_strength": "dataflow-trace"},
+            "llm_analysis_notes": "Likely exploitable",
+        }
+    ])
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["tool"] == "llm-analyzer"
+    assert finding["rule_id"] == "llm.idor-risk"
+    assert finding["file"] == "api/users.py"
+    assert finding["triage"]["status"] == "likely"
+    assert finding["analysis_enrichment"]["origin"] == "llm-discovery"
+    assert finding["llm_analysis_notes"] == "Likely exploitable"
+
+
+def test_validate_llm_findings_rejects_invalid_schema():
+    valid, errors = validate_llm_findings([
+        {
+            "rule_id": "llm.bad",
+            "title": "Bad finding",
+            "severity": "severe",
+            "file": "api.py",
+            "message": "bad",
+            "triage": {"status": "maybe"},
+        }
+    ])
+    assert valid is False
+    assert any("invalid severity" in err for err in errors)
+    assert any("invalid triage.status" in err for err in errors)
 
 
 # --- Severity fallback regression tests ---

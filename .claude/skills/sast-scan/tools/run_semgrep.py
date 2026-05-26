@@ -22,6 +22,11 @@ DEFAULT_EXCLUDE_DIRS = frozenset({
     ".parcel-cache", ".sass-cache", ".vscode", ".idea",
 })
 
+SEMGREP_ENV = {
+    "SEMGREP_SEND_METRICS": "off",
+    "SEMGREP_ENABLE_VERSION_CHECK": "0",
+}
+
 
 def _collect_scan_targets(
     target: str,
@@ -90,7 +95,11 @@ def run_semgrep(
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout + 60,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 60,
+            env={**os.environ, **SEMGREP_ENV},
         )
         exit_code = result.returncode
 
@@ -126,7 +135,11 @@ def run_semgrep(
 def _get_version() -> str:
     try:
         result = subprocess.run(
-            ["semgrep", "--version"], capture_output=True, text=True, timeout=30,
+            ["semgrep", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, **SEMGREP_ENV},
         )
         if result.returncode == 0:
             return result.stdout.strip()

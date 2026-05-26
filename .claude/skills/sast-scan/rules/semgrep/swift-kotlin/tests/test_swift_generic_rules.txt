@@ -1,0 +1,5 @@
+# ruleid: swift.security.url-scheme-bypass
+open url
+
+# ok: swift.security.url-scheme-bypass
+validate incoming url

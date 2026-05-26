@@ -48,10 +48,15 @@ OpenSAST 采用 LLM-Primary 架构：规则扫描器产生原始信号，Claude 
 
 | 命令 | 用途 |
 |------|------|
-| `/sast-scan` | 执行安全扫描 |
-| `/sast-triage` | 分析误报、优先级排序、生成分类报告 |
-| `/sast-fix` | 针对指定发现生成或应用修复补丁 |
-| `/sast-baseline` | 管理基线，抑制已确认的风险，关注新增问题 |
+| `/sast-scan` | 执行安全扫描，当前最完整的主执行链 |
+| `/sast-triage` | 分析误报、优先级排序、生成分类报告，已提供结构化 triage 入口 |
+| `/sast-fix` | 针对指定发现生成标准化修复建议，并可触发定向复扫 |
+| `/sast-baseline` | 管理基线，抑制已确认的风险，关注新增问题，已提供基线管理入口 |
+
+说明：
+- `/sast-scan` 已具备完整 runner、报告、gate、CI、LLM findings 导入与覆盖审计链路。
+- `/sast-triage` 与 `/sast-baseline` 现在已有独立 helper 脚本和测试，但整体成熟度仍低于 `/sast-scan` 主链。
+- `/sast-fix` 现在已有独立 helper，可按 finding 生成修复建议并触发定向复扫，但仍不自动改代码。
 
 ## 使用方式
 
@@ -67,12 +72,52 @@ OpenSAST 采用 LLM-Primary 架构：规则扫描器产生原始信号，Claude 
 # 深度扫描并生成 SARIF 报告
 /sast-scan . --profile deep --format sarif
 
+# 合并外部 LLM findings
+/sast-scan . --llm-findings .claude/sast/results/llm-findings.json
+
 # 扫描指定目录
 /sast-scan src --profile standard --format all
 
 # 高危及以上阻断
 /sast-scan . --fail-on high
 ```
+
+### 推荐工作流
+
+1. 扫描并产出主结果
+
+```bash
+/sast-scan . --profile standard --format all
+```
+
+2. 对结果做分类和优先级整理
+
+```bash
+python3 .claude/skills/sast-scan/tools/triage_findings.py \
+  --findings .claude/sast/results/findings.json \
+  --focus all \
+  --output markdown
+```
+
+3. 对确认误报或接受风险的项维护基线
+
+```bash
+python3 .claude/skills/sast-scan/tools/baseline_manager.py show
+python3 .claude/skills/sast-scan/tools/baseline_manager.py suppress \
+  --fingerprint <fingerprint> \
+  --reason "false positive with framework guard"
+```
+
+4. 对真实问题生成修复建议并做定向复扫
+
+```bash
+python3 .claude/skills/sast-scan/tools/fix_finding.py <finding-id-or-fingerprint> --test
+```
+
+推荐顺序：
+- 开发者本地：`quick scan -> fix`
+- 仓库级评审：`standard scan -> triage -> baseline/fix`
+- 高信任审计：`deep scan -> triage -> fix -> strict gate`
 
 ### 参数说明
 
@@ -85,7 +130,15 @@ Options:
   --format markdown|json|sarif|all 输出格式（默认 markdown）
   --fail-on low|medium|high|critical  阻断阈值
   --lang auto|js|ts|python|...     指定语言（默认 auto 自动检测）
+  --llm-findings FILE                合并外部 LLM findings JSON
 ```
+
+### 深度扫描安全边界
+
+- `quick` / `standard` 默认适合常规仓库扫描。
+- `deep` 模式会启用 CodeQL。对于需要构建的语言，OpenSAST 默认只允许包管理器构建命令，不默认执行仓库自带入口脚本。
+- 仓库内的 `./mvnw`、`./gradlew`、`make`、`cmake` 等构建入口应视为高信任操作；仅在你信任目标仓库时，才应通过配置显式放开。
+- 对不可信仓库，推荐先使用 `quick` 或 `standard`，再根据需要单独开启更深的分析。
 
 ## 安装
 
@@ -144,6 +197,10 @@ opensast/
 
 ## CI/CD 集成
 
+当前真实完成度、推荐使用路径和已知限制见：
+
+- `.claude/skills/sast-scan/docs/status-and-usage.md`
+
 ### GitHub Actions
 
 ```yaml
@@ -184,11 +241,28 @@ sast:
 
 默认配置位于 `.claude/skills/sast-scan/config/default.yml`，可通过项目级 `.claude/sast/config.yml` 覆盖。
 
+CodeQL 相关安全选项：
+
+```yaml
+tools:
+  codeql:
+    allow_package_manager_builds: true
+    allow_repo_build_commands: false
+
+gate:
+  review_findings_blocking: false
+```
+
+`review_findings_blocking` 默认关闭。开启后，`needs-review` 项也会参与 CI 阻断，适合想把人工复核项一并收紧的仓库。
+
 ## 开发
 
 ```bash
 pip install -r requirements.txt
 pytest tests/
+python3 .claude/skills/sast-scan/tools/test_rules.py \
+  --rules-dir .claude/skills/sast-scan/rules/semgrep \
+  --coverage-report .claude/sast/results/rule-coverage.md
 ```
 
 ## 许可证

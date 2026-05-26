@@ -8,10 +8,15 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
 
 from report_writer import (
+    build_enriched_findings,
+    classify_evidence_strength,
+    classify_finding_origin,
     generate_claude_summary,
     generate_html_report,
     generate_json_summary,
     generate_markdown_report,
+    resolve_triage_status,
+    summarize_analysis_enrichment,
 )
 
 
@@ -27,7 +32,7 @@ def _make_summary(**overrides) -> dict:
         "blocking_findings": 1,
         "severity_counts": {"critical": 0, "high": 1, "medium": 1, "low": 1, "info": 0},
         "tool_errors": [],
-        "gate_result": {"passed": False, "fail_on": "high", "blocking_count": 1},
+        "gate_result": {"passed": False, "fail_on": "high", "blocking_count": 1, "review_findings_blocking": False},
     }
     base.update(overrides)
     return base
@@ -47,15 +52,24 @@ def _make_findings() -> list[dict]:
             "fingerprint": "fp1", "is_new": True, "is_suppressed": False,
         },
         {
-            "id": "f2", "tool": "semgrep", "rule_id": "R2",
+            "id": "f2", "tool": "llm-analyzer", "rule_id": "llm.business-logic",
             "title": "Hardcoded password", "severity": "medium",
             "confidence": "medium", "language": "python",
             "file": "src/config.py", "start_line": 5, "end_line": 5,
             "cwe": ["CWE-798"], "owasp": [],
             "message": "Hardcoded secret found",
-            "evidence": {"source": "", "sink": "", "dataflow": []},
+            "evidence": {
+                "source": "user.id",
+                "sink": "db.update()",
+                "dataflow": [
+                    {"file": "src/config.py", "line": 5, "label": "source"},
+                    {"file": "src/config.py", "line": 8, "label": "sink"},
+                ],
+            },
             "recommendation": "Use env variable",
             "fingerprint": "fp2", "is_new": True, "is_suppressed": False,
+            "llm_analysis_notes": "Likely exploitable because sensitive update lacks ownership check.",
+            "triage": {"status": "likely", "rationale": "Needs ownership validation"},
         },
         {
             "id": "f3", "tool": "semgrep", "rule_id": "R3",
@@ -81,6 +95,7 @@ def test_generate_markdown_report():
         assert "Hardcoded password" in content
         assert "CI Gate" in content
         assert "FAIL" in content
+        assert "Gate mode" in content
 
 
 def test_generate_markdown_empty():
@@ -97,6 +112,10 @@ def test_generate_json_summary():
         assert os.path.isfile(path)
         assert data["total_findings"] == 3
         assert len(data["findings"]) == 3
+        assert "analysis_enrichment" in data
+        assert "findings_enriched" in data
+        assert data["analysis_enrichment"]["by_origin"]["llm-discovery"] == 1
+        assert data["gate_mode"]["mode"] == "standard"
         with open(path) as f:
             loaded = json.load(f)
         assert loaded["profile"] == "standard"
@@ -107,6 +126,8 @@ def test_generate_claude_summary():
     assert "3 total" in text
     assert "SQL Injection" in text
     assert "src/app.py:10" in text
+    assert "Analysis enrichment" in text
+    assert "Gate mode: standard" in text
 
 
 def test_generate_markdown_with_suppressed():
@@ -188,8 +209,10 @@ def test_generate_html_report():
         assert "Risk Grade" in content
         assert "OWASP Top 10" in content
         assert "CWE Top 25" in content
+        assert "Analysis Enrichment" in content
         assert "SQL Injection" in content
         assert "Remediation Priority" in content
+        assert "Mode: standard" in content
 
 
 def test_markdown_has_compliance_section():
@@ -198,6 +221,25 @@ def test_markdown_has_compliance_section():
         content = generate_markdown_report(_make_summary(), _make_findings(), path)
         assert "OWASP Top 10 Compliance" in content
         assert "CWE Top 25" in content
+        assert "Analysis Enrichment" in content
         assert "Risk Grade" in content
         assert "Findings by Category" in content
         assert "Remediation Priority" in content
+
+
+def test_analysis_enrichment_helpers():
+    findings = _make_findings()
+    assert classify_finding_origin(findings[0]) == "rule-engine"
+    assert classify_finding_origin(findings[1]) == "llm-discovery"
+    assert classify_evidence_strength(findings[1]) == "dataflow-trace"
+    assert resolve_triage_status(findings[1]) == "likely"
+
+    summary = summarize_analysis_enrichment(findings)
+    assert summary["by_origin"]["rule-engine"] == 2
+    assert summary["by_origin"]["llm-discovery"] == 1
+    assert summary["dataflow_supported_findings"] == 1
+    assert summary["llm_notes_count"] == 1
+
+    enriched = build_enriched_findings(findings)
+    assert enriched[1]["analysis_enrichment"]["origin"] == "llm-discovery"
+    assert enriched[1]["analysis_enrichment"]["triage_status"] == "likely"

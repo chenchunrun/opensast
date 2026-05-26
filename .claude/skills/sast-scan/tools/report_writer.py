@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+DEEP_ANALYSIS_TOOLS = {"llm-analyzer", "dataflow-analyzer", "rbac-analyzer", "auth-chain-analyzer", "taint-tracker"}
 
 SEVERITY_DEDUCTION = {"critical": 15, "high": 8, "medium": 4, "low": 2, "info": 0.5}
 CONFIDENCE_MULTIPLIER = {"very-high": 1.0, "high": 1.0, "medium": 0.7, "low": 0.4}
@@ -28,6 +29,104 @@ CWE_TOP_25 = [
     "CWE-798", "CWE-306", "CWE-119", "CWE-200", "CWE-276",
     "CWE-918", "CWE-94", "CWE-770", "CWE-611",
 ]
+
+
+def classify_finding_origin(finding: dict) -> str:
+    tool = finding.get("tool", "")
+    if tool == "llm-analyzer":
+        return "llm-discovery"
+    if tool in DEEP_ANALYSIS_TOOLS:
+        return "deep-analysis"
+    return "rule-engine"
+
+
+def classify_evidence_strength(finding: dict) -> str:
+    evidence = finding.get("evidence") or {}
+    dataflow = evidence.get("dataflow") or []
+    has_source = bool(evidence.get("source"))
+    has_sink = bool(evidence.get("sink"))
+    if len(dataflow) >= 2:
+        return "dataflow-trace"
+    if has_source and has_sink:
+        return "source-sink"
+    if has_source or has_sink:
+        return "context-only"
+    return "none"
+
+
+def resolve_triage_status(finding: dict) -> str:
+    if finding.get("is_suppressed"):
+        return "suppressed"
+    triage = finding.get("triage") or {}
+    if triage.get("status"):
+        return triage["status"]
+    confidence_score = finding.get("confidence_score")
+    confidence = str(finding.get("confidence", "")).lower()
+    if confidence_score is not None and confidence_score <= 0.5:
+        return "needs-review"
+    if confidence == "low":
+        return "needs-review"
+    return "active"
+
+
+def summarize_analysis_enrichment(findings: list[dict]) -> dict:
+    origin_counts: dict[str, int] = defaultdict(int)
+    triage_counts: dict[str, int] = defaultdict(int)
+    evidence_counts: dict[str, int] = defaultdict(int)
+    discovery_categories: dict[str, int] = defaultdict(int)
+    llm_notes = 0
+    dataflow_supported = 0
+
+    for finding in findings:
+        origin = classify_finding_origin(finding)
+        origin_counts[origin] += 1
+
+        triage = resolve_triage_status(finding)
+        triage_counts[triage] += 1
+
+        strength = classify_evidence_strength(finding)
+        evidence_counts[strength] += 1
+        if strength == "dataflow-trace":
+            dataflow_supported += 1
+
+        if finding.get("llm_analysis_notes"):
+            llm_notes += 1
+
+        if origin == "llm-discovery":
+            rule_id = finding.get("rule_id", "")
+            category = rule_id.split(".", 1)[1] if "." in rule_id else "unknown"
+            discovery_categories[category] += 1
+
+    return {
+        "by_origin": dict(sorted(origin_counts.items())),
+        "by_triage": dict(sorted(triage_counts.items())),
+        "by_evidence_strength": dict(sorted(evidence_counts.items())),
+        "llm_notes_count": llm_notes,
+        "dataflow_supported_findings": dataflow_supported,
+        "llm_discovery_categories": dict(sorted(discovery_categories.items())),
+    }
+
+
+def build_enriched_findings(findings: list[dict]) -> list[dict]:
+    enriched = []
+    for finding in findings:
+        entry = dict(finding)
+        evidence = finding.get("evidence") or {}
+        entry["analysis_enrichment"] = {
+            "origin": classify_finding_origin(finding),
+            "triage_status": resolve_triage_status(finding),
+            "evidence_strength": classify_evidence_strength(finding),
+            "dataflow_steps": len(evidence.get("dataflow") or []),
+            "has_llm_notes": bool(finding.get("llm_analysis_notes")),
+        }
+        enriched.append(entry)
+    return enriched
+
+
+def describe_gate_mode(gate_result: dict) -> tuple[str, str]:
+    if gate_result.get("review_findings_blocking"):
+        return ("strict", "Blocking confirmed findings and needs-review findings")
+    return ("standard", "Blocking confirmed findings only; needs-review findings are advisory")
 
 
 def _severity_sort_key(finding: dict) -> int:
@@ -111,6 +210,7 @@ def group_findings_by(findings: list[dict], key: str) -> dict[str, list[dict]]:
 def generate_html_report(summary: dict, findings: list[dict], output_path: str) -> str:
     score, grade = compute_risk_score(findings)
     compliance = compute_compliance_mapping(findings)
+    enrichment = summarize_analysis_enrichment(findings)
     severity_counts = summary.get("severity_counts", {})
     total = sum(severity_counts.values())
     by_category = group_findings_by(findings, "category")
@@ -122,6 +222,7 @@ def generate_html_report(summary: dict, findings: list[dict], output_path: str) 
 
     grade_color = _grade_color(grade)
     gate = summary.get("gate_result", {})
+    gate_mode, gate_mode_desc = describe_gate_mode(gate)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -210,7 +311,8 @@ code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.
   <div class="card card-center">
     <div class="label">CI Gate</div>
     <div class="{'gate-pass' if gate.get('passed') else 'gate-fail'}">{'PASS' if gate.get('passed') else 'FAIL'}</div>
-    <div style="color:var(--text2);font-size:0.85rem">Threshold: {gate.get('fail_on', 'N/A')}</div>
+    <div style="color:var(--text2);font-size:0.85rem">Threshold: {gate.get('fail_on', 'N/A')} | Mode: {gate_mode}</div>
+    <div style="color:var(--text2);font-size:0.8rem">{gate_mode_desc}</div>
   </div>
   <div class="card">
     <div class="label" style="font-size:0.8rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em">Severity Distribution</div>
@@ -245,6 +347,35 @@ code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.
 <tr><th>CWE ID</th><th>Status</th><th>Findings</th></tr>
 {_cwe25_rows(compliance['cwe_top_25'])}
 </table>
+
+<!-- Analysis Enrichment -->
+<h2>Analysis Enrichment</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Finding Origins</h3>
+    <table>
+      <tr><th>Origin</th><th>Count</th></tr>
+      {_kv_rows(enrichment['by_origin'])}
+    </table>
+  </div>
+  <div class="card">
+    <h3>Triage Status</h3>
+    <table>
+      <tr><th>Status</th><th>Count</th></tr>
+      {_kv_rows(enrichment['by_triage'])}
+    </table>
+  </div>
+  <div class="card">
+    <h3>Evidence Strength</h3>
+    <table>
+      <tr><th>Strength</th><th>Count</th></tr>
+      {_kv_rows(enrichment['by_evidence_strength'])}
+    </table>
+    <p style="font-size:0.85rem;color:var(--text2);margin-top:8px">
+      LLM notes: {enrichment['llm_notes_count']} | Dataflow-supported findings: {enrichment['dataflow_supported_findings']}
+    </p>
+  </div>
+</div>
 
 <!-- Findings -->
 <h2>Findings Dashboard</h2>
@@ -305,12 +436,14 @@ function switchTab(id) {{
 def generate_markdown_report(summary: dict, findings: list[dict], output_path: str) -> str:
     score, grade = compute_risk_score(findings)
     compliance = compute_compliance_mapping(findings)
+    enrichment = summarize_analysis_enrichment(findings)
     severity_counts = summary.get("severity_counts", {})
     blocking = [f for f in findings if f.get("is_new") and not f.get("is_suppressed")]
     sorted_findings = sorted(blocking, key=_severity_sort_key, reverse=True)
     by_category = group_findings_by(findings, "category")
     by_file = group_findings_by(findings, "file")
     gate = summary.get("gate_result", {})
+    gate_mode, gate_mode_desc = describe_gate_mode(gate)
 
     lines = [
         "# SAST Scan Report",
@@ -327,6 +460,15 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
         f"- **New findings:** {summary.get('new_findings', 0)}",
         f"- **Blocking findings:** {summary.get('blocking_findings', 0)}",
         f"- **CI Gate:** {'PASS' if gate.get('passed') else 'FAIL'} (threshold: {gate.get('fail_on', 'N/A')})",
+        f"- **Gate mode:** {gate_mode} — {gate_mode_desc}",
+        "",
+        "## Analysis Enrichment",
+        "",
+        f"- **Origins:** {', '.join(f'{k}={v}' for k, v in enrichment['by_origin'].items()) or 'none'}",
+        f"- **Triage:** {', '.join(f'{k}={v}' for k, v in enrichment['by_triage'].items()) or 'none'}",
+        f"- **Evidence strength:** {', '.join(f'{k}={v}' for k, v in enrichment['by_evidence_strength'].items()) or 'none'}",
+        f"- **LLM notes attached:** {enrichment['llm_notes_count']}",
+        f"- **Dataflow-supported findings:** {enrichment['dataflow_supported_findings']}",
         "",
         "## Risk Overview",
         "",
@@ -452,6 +594,8 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
 
 def generate_json_summary(summary: dict, findings: list[dict], output_path: str) -> dict:
     score, grade = compute_risk_score(findings)
+    enrichment = summarize_analysis_enrichment(findings)
+    gate_mode, gate_mode_desc = describe_gate_mode(summary.get("gate_result", {}))
     data = {
         "scan_time": datetime.now(timezone.utc).isoformat(),
         "target": summary.get("target", ""),
@@ -465,9 +609,12 @@ def generate_json_summary(summary: dict, findings: list[dict], output_path: str)
         "risk_score": score,
         "risk_grade": grade,
         "compliance": compute_compliance_mapping(findings),
+        "analysis_enrichment": enrichment,
         "gate_result": summary.get("gate_result", {}),
+        "gate_mode": {"mode": gate_mode, "description": gate_mode_desc},
         "tool_errors": summary.get("tool_errors", []),
         "findings": findings,
+        "findings_enriched": build_enriched_findings(findings),
     }
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as fh:
@@ -480,6 +627,8 @@ def generate_claude_summary(summary: dict, findings: list[dict]) -> str:
     blocking = [f for f in findings if f.get("is_new") and not f.get("is_suppressed")]
     sorted_blockers = sorted(blocking, key=_severity_sort_key, reverse=True)[:5]
     score, grade = compute_risk_score(findings)
+    enrichment = summarize_analysis_enrichment(findings)
+    gate_mode, gate_mode_desc = describe_gate_mode(summary.get("gate_result", {}))
 
     lines = [
         f"Scan complete: {summary.get('total_findings', 0)} total, "
@@ -489,6 +638,11 @@ def generate_claude_summary(summary: dict, findings: list[dict]) -> str:
         "",
         "Severity breakdown: "
         + ", ".join(f"{k}={v}" for k, v in severity_counts.items() if v > 0),
+        "",
+        "Analysis enrichment: "
+        + ", ".join(f"{k}={v}" for k, v in enrichment["by_origin"].items() if v > 0),
+        "",
+        f"Gate mode: {gate_mode} ({gate_mode_desc})",
         "",
     ]
     if sorted_blockers:
@@ -574,6 +728,15 @@ def _cwe25_rows(cwe25_map: dict) -> str:
     return "\n".join(rows)
 
 
+def _kv_rows(values: dict[str, int]) -> str:
+    if not values:
+        return '<tr><td colspan="2" style="text-align:center;color:var(--text2)">No data</td></tr>'
+    rows = []
+    for key, value in values.items():
+        rows.append(f"<tr><td>{_esc(key)}</td><td>{value}</td></tr>")
+    return "\n".join(rows)
+
+
 def _findings_by_severity(findings: list[dict]) -> str:
     by_sev = group_findings_by(findings, "severity")
     parts = []
@@ -623,6 +786,11 @@ def _finding_card(f: dict) -> str:
     confidence = f.get("confidence", "?")
     tool = f.get("tool", "")
     is_business = tool in ("dataflow-analyzer", "rbac-analyzer")
+    enrichment = (f.get("analysis_enrichment") or {
+        "origin": classify_finding_origin(f),
+        "triage_status": resolve_triage_status(f),
+        "evidence_strength": classify_evidence_strength(f),
+    })
 
     card = f"""<div class="finding">
 <div class="finding-header">
@@ -631,7 +799,10 @@ def _finding_card(f: dict) -> str:
 </div>
 <div class="finding-meta">
   <div><strong>File:</strong> <code>{_esc(f.get('file', '?'))}:{f.get('start_line', '?')}</div>
-  <div><strong>Tool:</strong> {_esc(f.get('tool', '?'))}</div>"""
+  <div><strong>Tool:</strong> {_esc(f.get('tool', '?'))}</div>
+  <div><strong>Origin:</strong> {_esc(enrichment.get('origin', 'unknown'))}</div>
+  <div><strong>Triage:</strong> {_esc(enrichment.get('triage_status', 'unknown'))}</div>
+  <div><strong>Evidence:</strong> {_esc(enrichment.get('evidence_strength', 'none'))}</div>"""
     if cwe:
         card += f'\n  <div><strong>CWE:</strong> {_esc(cwe)}</div>'
     if owasp:
@@ -647,6 +818,8 @@ def _finding_card(f: dict) -> str:
     if recommendation:
         rec_short = recommendation[:200] + "..." if len(recommendation) > 200 else recommendation
         card += f'\n<p style="font-size:0.85rem;color:var(--text2)"><strong>Fix:</strong> {_esc(rec_short)}</p>'
+    if f.get("llm_analysis_notes"):
+        card += f'\n<p style="font-size:0.85rem;color:var(--text2)"><strong>LLM notes:</strong> {_esc(f["llm_analysis_notes"][:200])}</p>'
     card += '\n</div>'
     return card
 
@@ -680,11 +853,17 @@ def _tool_errors_html(errors: list[dict]) -> str:
 def _format_finding_md(index: int, f: dict) -> list[str]:
     cwe = ", ".join(f.get("cwe", []))
     owasp = ", ".join(f.get("owasp", []))
+    enrichment = (f.get("analysis_enrichment") or {
+        "origin": classify_finding_origin(f),
+        "triage_status": resolve_triage_status(f),
+        "evidence_strength": classify_evidence_strength(f),
+    })
     lines = [
         f"#### {index}. [{f.get('severity', '?').upper()}] {f.get('title', 'Untitled')}",
         "",
         f"- **File:** `{f.get('file', '?')}:{f.get('start_line', '?')}`",
         f"- **Tool:** {f.get('tool', '?')} | **Confidence:** {f.get('confidence', '?')}",
+        f"- **Origin:** {enrichment.get('origin', 'unknown')} | **Triage:** {enrichment.get('triage_status', 'unknown')} | **Evidence:** {enrichment.get('evidence_strength', 'none')}",
     ]
     if cwe:
         lines.append(f"- **CWE:** {cwe}")
@@ -696,6 +875,8 @@ def _format_finding_md(index: int, f: dict) -> list[str]:
         lines.append(f"- **Source:** `{evidence['source'][:120]}`")
     if f.get("recommendation"):
         lines.append(f"- **Fix:** {f['recommendation'][:200]}")
+    if f.get("llm_analysis_notes"):
+        lines.append(f"- **LLM notes:** {f['llm_analysis_notes'][:200]}")
     lines.append("")
     return lines
 

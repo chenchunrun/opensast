@@ -20,16 +20,39 @@ def test_format_pr_comment_passed():
         "total_findings": 5,
         "new_findings": 2,
         "blocking_findings": 0,
+        "review_findings": 1,
         "severity_counts": {"critical": 0, "high": 1, "medium": 2, "low": 2, "info": 0},
-        "gate_result": {"passed": True, "blocking_count": 0},
+        "gate_result": {"passed": True, "blocking_count": 0, "review_findings_blocking": False},
+        "project_archetype": "web-app",
+        "llm_analysis_targets": 3,
+        "llm_discovery_targets": 1,
+        "analysis_enrichment": {
+            "by_origin": {"rule-engine": 1, "llm-discovery": 1},
+            "by_triage": {"active": 1, "likely": 1},
+            "llm_discovery_categories": {"idor-risk": 1},
+        },
     }
     findings = [
-        {"severity": "high", "file": "app.py", "start_line": 10, "title": "SQL injection", "is_new": True, "is_suppressed": False},
+        {
+            "severity": "high", "file": "app.py", "start_line": 10, "title": "SQL injection",
+            "is_new": True, "is_suppressed": False, "triage": {"status": "likely"},
+        },
+        {
+            "severity": "medium", "file": "helper.py", "start_line": 20, "title": "Review item",
+            "is_new": True, "is_suppressed": False,
+            "triage": {"status": "needs-review", "rationale": "Low confidence score after heuristic filtering"},
+        },
     ]
     comment = format_pr_comment(summary, findings)
     assert "5 findings" in comment
     assert "PASSED" in comment
     assert "SQL injection" in comment
+    assert "standard mode" in comment
+    assert "Analysis Enrichment" in comment
+    assert "Archetype" in comment
+    assert "Origins:" in comment
+    assert "LLM discovery categories" in comment
+    assert "Needs Review" in comment
 
 
 def test_format_pr_comment_failed():
@@ -37,12 +60,14 @@ def test_format_pr_comment_failed():
         "total_findings": 3,
         "new_findings": 3,
         "blocking_findings": 1,
+        "review_findings": 0,
         "severity_counts": {"critical": 1, "high": 0, "medium": 1, "low": 1, "info": 0},
-        "gate_result": {"passed": False, "blocking_count": 1},
+        "gate_result": {"passed": False, "blocking_count": 1, "review_findings_blocking": True},
     }
     comment = format_pr_comment(summary, [])
     assert "FAILED" in comment
     assert "1 blocking" in comment
+    assert "strict mode" in comment
 
 
 def test_is_github_actions():
@@ -70,8 +95,9 @@ def test_format_pr_comment_no_findings():
         "total_findings": 0,
         "new_findings": 0,
         "blocking_findings": 0,
+        "review_findings": 0,
         "severity_counts": {},
-        "gate_result": {"passed": True},
+        "gate_result": {"passed": True, "review_findings_blocking": False},
     }
     comment = format_pr_comment(summary, [])
     assert "0 findings" in comment

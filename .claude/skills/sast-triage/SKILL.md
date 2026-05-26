@@ -23,23 +23,29 @@ $ARGUMENTS
 
 ## Workflow
 
-1. Read the findings from `.claude/sast/results/findings.json` (or specified path).
-2. For each finding, assess:
+1. Run the structured triage helper when possible:
+
+```bash
+python3 .claude/skills/sast-scan/tools/triage_findings.py --findings .claude/sast/results/findings.json --focus all --output markdown
+```
+
+2. Read the findings from `.claude/sast/results/findings.json` (or specified path).
+3. For each finding, assess:
    - **False positive likelihood**: Is the input actually user-controlled? Is there a sanitizer?
    - **Exploitability**: Can an attacker actually reach this code path?
    - **Business impact**: What data or functionality is at risk?
    - **Confidence**: How certain is the scanner about this finding?
-3. Categorize findings into:
-   - **True Positive - Critical**: Must fix immediately
-   - **True Positive - Important**: Should fix soon
-   - **True Positive - Low Risk**: Fix when convenient
-   - **Likely False Positive**: Needs manual review
-   - **False Positive**: Can suppress
-4. For true positives, suggest:
+4. Categorize findings into:
+   - **Priority**: critical/high issues that should block or be fixed first
+   - **Important**: medium/low issues that are still actionable
+   - **Needs Review**: not clearly false, but needs manual validation
+   - **False Positive / Suppressed**: can be suppressed with evidence
+   - **Informational**: low-value context
+5. For true positives, suggest:
    - Priority order for fixing
    - Estimated effort (low/medium/high)
    - Whether it needs a code fix or configuration change
-5. Output a triage summary.
+6. Output a triage summary.
 
 ## Output format
 

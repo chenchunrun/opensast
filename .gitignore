@@ -1,8 +1,10 @@
 # Scan results
 .claude/sast/results*/
+.claude/skills/sast-scan/tools/.claude/sast/results*/
 
 # Scan history
 .claude/sast/history/
+.claude/skills/sast-scan/tools/.claude/sast/history/
 
 # CodeQL cache
 .claude/sast/codeql-cache/

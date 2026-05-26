@@ -126,6 +126,13 @@ def _extract_first_cwe(finding: dict) -> str:
     return candidate
 
 
+def _set_triage(entry: dict, status: str, rationale: str) -> None:
+    triage = dict(entry.get("triage") or {})
+    triage["status"] = status
+    triage["rationale"] = rationale
+    entry["triage"] = triage
+
+
 def _severity_rank(severity: str) -> int:
     """Return numeric rank for severity (higher = more severe)."""
     try:
@@ -404,6 +411,7 @@ def apply_finding_filters(
                 continue
             entry["is_suppressed"] = True
             entry["suppression_reason"] = "generated_code"
+            _set_triage(entry, "false-positive", "Generated code is suppressed from actionable review")
             result.append(entry)
             continue
 
@@ -414,6 +422,7 @@ def apply_finding_filters(
                 continue
             entry["original_severity"] = f.get("severity", "info")
             entry["severity"] = _reduce_severity(f.get("severity", "info"))
+            _set_triage(entry, "needs-review", "Finding occurs in test code and is downgraded for manual review")
 
         # Reachability scoring
         if reach_enabled and file_path and f.get("language"):
@@ -431,6 +440,8 @@ def apply_finding_filters(
                 f["confidence_score"] = 0.0
                 continue
             f["confidence_score"] = compute_confidence_score(f, project_root)
+            if f.get("confidence_score", 0.5) <= 0.5 and not (f.get("triage") or {}).get("status"):
+                _set_triage(f, "needs-review", "Low confidence score after heuristic filtering")
         min_score = filter_config.get("confidence_scoring", {}).get("minimum_score", 0.3)
         findings = [f for f in findings if f.get("is_suppressed") or f.get("confidence_score", 0.5) >= min_score]
 
@@ -445,6 +456,17 @@ def apply_finding_filters(
                 continue
             f["original_severity"] = f.get("severity", "info")
             f["severity"] = calibrate_severity(f, project_root)
+
+    for f in findings:
+        if f.get("is_suppressed"):
+            continue
+        if (f.get("triage") or {}).get("status"):
+            continue
+        reachability = f.get("reachability") or {}
+        if reachability.get("is_reachable") is False:
+            _set_triage(f, "needs-review", f"Reachability uncertain: {reachability.get('reason', 'not_reachable')}")
+        else:
+            _set_triage(f, "active", "Passed heuristic filtering and remains actionable")
 
     # Apply noise budget
     if filter_config.get("noise_budget", {}).get("enabled", True):

@@ -4,7 +4,9 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -20,10 +22,18 @@ from history import compare_scans, get_previous_scan, load_scan_history, save_sc
 from normalize_findings import (
     NORMALIZERS,
     deduplicate_findings,
+    normalize_llm_findings,
     normalize_semgrep,
+    validate_llm_findings,
 )
 from redact import redact_findings, redact_markdown, redact_sarif
-from report_writer import generate_claude_summary, generate_html_report, generate_json_summary, generate_markdown_report
+from report_writer import (
+    generate_claude_summary,
+    generate_html_report,
+    generate_json_summary,
+    generate_markdown_report,
+    summarize_analysis_enrichment,
+)
 from run_bandit import run_bandit
 from run_checkov import run_checkov
 from run_codeql import run_codeql
@@ -45,6 +55,43 @@ EXIT_CONFIG_ERROR = 6
 
 SKILL_DIR = os.path.dirname(os.path.dirname(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(SKILL_DIR, "config", "default.yml")
+LANGUAGE_FILTERS = {
+    "js": {"javascript"},
+    "javascript": {"javascript"},
+    "ts": {"typescript"},
+    "typescript": {"typescript"},
+    "python": {"python"},
+    "py": {"python"},
+    "java": {"java"},
+    "kotlin": {"kotlin"},
+    "go": {"go"},
+    "csharp": {"csharp"},
+    "cs": {"csharp"},
+    "cpp": {"cpp", "c"},
+    "c": {"c"},
+    "php": {"php"},
+    "ruby": {"ruby"},
+    "rust": {"rust"},
+    "swift": {"swift"},
+    "terraform": {"terraform"},
+    "iac": {"terraform"},
+}
+LANGUAGE_EXTENSIONS = {
+    "python": {".py"},
+    "javascript": {".js", ".jsx", ".mjs", ".cjs"},
+    "typescript": {".ts", ".tsx"},
+    "java": {".java"},
+    "kotlin": {".kt", ".kts"},
+    "go": {".go"},
+    "csharp": {".cs"},
+    "cpp": {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"},
+    "c": {".c", ".h"},
+    "php": {".php"},
+    "ruby": {".rb"},
+    "rust": {".rs"},
+    "swift": {".swift"},
+    "terraform": {".tf", ".tfvars", ".hcl"},
+}
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -58,13 +105,12 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config(config_path: str | None) -> dict:
-    paths = []
-    if config_path:
-        paths.append(config_path)
+    paths = [DEFAULT_CONFIG_PATH]
     user_config = os.path.join(".claude", "sast", "config.yml")
     if os.path.isfile(user_config):
         paths.append(user_config)
-    paths.append(DEFAULT_CONFIG_PATH)
+    if config_path:
+        paths.append(config_path)
 
     merged: dict = {}
     for path in paths:
@@ -74,6 +120,69 @@ def load_config(config_path: str | None) -> dict:
             data = yaml.safe_load(fh) or {}
         merged = _deep_merge(merged, data)
     return merged
+
+
+def _resolve_language_filter(lang_arg: str, detected_languages: set[str]) -> set[str]:
+    if not lang_arg or lang_arg == "auto":
+        return set(detected_languages)
+    selected = LANGUAGE_FILTERS.get(lang_arg.lower().strip(), set())
+    return selected & detected_languages if detected_languages else selected
+
+
+def _filter_files_by_languages(files: list[str], languages: set[str]) -> list[str]:
+    if not languages:
+        return files
+    allowed_exts = set()
+    for language in languages:
+        allowed_exts.update(LANGUAGE_EXTENSIONS.get(language, set()))
+    if not allowed_exts:
+        return files
+    return [f for f in files if os.path.splitext(f)[1].lower() in allowed_exts]
+
+
+def _stage_scan_subset(target: str, files: list[str]) -> tempfile.TemporaryDirectory | None:
+    if not files:
+        return None
+    staged = tempfile.TemporaryDirectory(prefix="opensast-scan-")
+    for rel_path in files:
+        source = os.path.join(target, rel_path)
+        if not os.path.isfile(source):
+            continue
+        dest = os.path.join(staged.name, rel_path)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copy2(source, dest)
+    return staged
+
+
+def _load_llm_findings(import_path: str | None, repo_root: str) -> list[dict]:
+    if not import_path:
+        return []
+    path = os.path.abspath(import_path)
+    if not os.path.isfile(path):
+        logger.warning("LLM findings file not found: %s", path)
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to load LLM findings from %s: %s", path, exc)
+        return []
+
+    is_valid, errors = validate_llm_findings(data)
+    if not is_valid:
+        logger.warning("LLM findings validation failed for %s: %s", path, "; ".join(errors[:5]))
+        return []
+
+    findings = normalize_llm_findings(data)
+    for finding in findings:
+        file_path = finding.get("file", "")
+        if file_path and os.path.isabs(file_path):
+            try:
+                finding["file"] = os.path.relpath(file_path, repo_root)
+            except ValueError:
+                pass
+    logger.info("Imported %d LLM findings from %s", len(findings), path)
+    return findings
 
 
 def get_changed_files(target: str) -> list[str]:
@@ -157,6 +266,27 @@ def run(args: argparse.Namespace) -> int:
         else:
             logger.info("Changed files: %d", len(changed_files))
 
+    detected_languages = set(project.get("languages", {}).keys())
+    selected_languages = _resolve_language_filter(args.lang, detected_languages)
+    if args.lang != "auto":
+        logger.info("Language filter: %s -> %s", args.lang, ", ".join(sorted(selected_languages)) or "none")
+    if selected_languages:
+        project["languages"] = {
+            lang: pct for lang, pct in project.get("languages", {}).items() if lang in selected_languages
+        }
+        detected_languages = set(project["languages"].keys())
+
+    selected_files = changed_files[:] if changed_files else []
+    if selected_files and selected_languages:
+        selected_files = _filter_files_by_languages(selected_files, selected_languages)
+
+    staged_target: tempfile.TemporaryDirectory | None = None
+    if selected_files:
+        staged_target = _stage_scan_subset(target, selected_files)
+        if staged_target:
+            scan_target = staged_target.name
+            logger.info("Scanning staged subset: %d files", len(selected_files))
+
     tools_config = profile.get("tools", {})
     tool_timeout = args.tool_timeout or config.get("tools", {}).get("semgrep", {}).get("timeout", 300)
     tool_errors: list[dict] = []
@@ -194,8 +324,6 @@ def run(args: argparse.Namespace) -> int:
             tool_errors.append({"tool": "checkov", "error": result.get("error_message", "unknown")})
             logger.warning("Checkov: %s", result.get("error_message", "failed"))
 
-    detected_languages = set(project.get("languages", {}).keys())
-
     if tools_config.get("codeql", False):
         logger.info("Running CodeQL...")
         codeql_config = config.get("tools", {}).get("codeql", {})
@@ -207,6 +335,8 @@ def run(args: argparse.Namespace) -> int:
             timeout=codeql_timeout,
             profile=profile_name,
             enable_cache=codeql_config.get("enable_cache", True),
+            allow_package_manager_builds=codeql_config.get("allow_package_manager_builds", True),
+            allow_repo_build_commands=codeql_config.get("allow_repo_build_commands", False),
         )
         scan_results.append(result)
         if not result["success"]:
@@ -223,7 +353,19 @@ def run(args: argparse.Namespace) -> int:
 
     if "go" in detected_languages:
         logger.info("Running gosec...")
-        result = run_gosec(scan_target, output_dir, timeout=tool_timeout)
+        if staged_target:
+            logger.info("Skipping gosec on staged subset; requires module/package context")
+            result = {
+                "tool": "gosec",
+                "version": None,
+                "exit_code": None,
+                "sarif_path": None,
+                "json_path": None,
+                "error_message": "gosec skipped for changed-only scan because staged files do not preserve Go module context",
+                "success": False,
+            }
+        else:
+            result = run_gosec(scan_target, output_dir, timeout=tool_timeout)
         scan_results.append(result)
         if not result["success"]:
             tool_errors.append({"tool": "gosec", "error": result.get("error_message", "unknown")})
@@ -245,6 +387,10 @@ def run(args: argparse.Namespace) -> int:
         tool = r.get("tool", "")
         normalizer = NORMALIZERS.get(tool, normalize_semgrep)
         all_findings.extend(normalizer(sarif_data))
+
+    llm_findings_path = args.llm_findings or config.get("llm_findings", {}).get("import_file")
+    if llm_findings_path:
+        all_findings.extend(_load_llm_findings(llm_findings_path, project.get("repo_root", target)))
 
     all_findings = deduplicate_findings(all_findings)
 
@@ -284,7 +430,12 @@ def run(args: argparse.Namespace) -> int:
         with open(merged_sarif_path, "w", encoding="utf-8") as fh:
             json.dump(merged, fh, indent=2)
 
-    gate_result = evaluate_gate(all_findings, fail_on=fail_on, baseline_enabled=baseline_enabled)
+    gate_result = evaluate_gate(
+        all_findings,
+        fail_on=fail_on,
+        baseline_enabled=baseline_enabled,
+        review_findings_blocking=config.get("gate", {}).get("review_findings_blocking", False),
+    )
     blocking_count = gate_result.get("blocking_count", 0)
 
     tools_executed = [r["tool"] for r in scan_results if r.get("success")]
@@ -302,7 +453,34 @@ def run(args: argparse.Namespace) -> int:
         "severity_counts": severity_counts,
         "gate_result": gate_result,
         "tool_errors": tool_errors,
+        "analysis_enrichment": summarize_analysis_enrichment(all_findings),
     }
+    triage_counts = summary["analysis_enrichment"].get("by_triage", {})
+    summary["review_findings"] = triage_counts.get("needs-review", 0)
+    summary["suppressed_findings"] = triage_counts.get("suppressed", 0)
+
+    if profile_name in ("standard", "deep"):
+        logger.info("Generating LLM analysis plan...")
+        try:
+            llm_plan = generate_analysis_plan(
+                findings=all_findings,
+                project=project,
+                project_root=target,
+                config=config,
+            )
+            plan_path = save_analysis_plan(llm_plan, output_dir)
+            logger.info(
+                "LLM analysis plan: %s (%d validation targets, %d discovery targets, archetype=%s)",
+                plan_path,
+                len(llm_plan.get("analysis_targets", [])),
+                len(llm_plan.get("discover_targets", [])),
+                llm_plan.get("project_archetype", "unknown"),
+            )
+            summary["llm_analysis_targets"] = len(llm_plan.get("analysis_targets", []))
+            summary["llm_discovery_targets"] = len(llm_plan.get("discover_targets", []))
+            summary["project_archetype"] = llm_plan.get("project_archetype", "unknown")
+        except Exception as e:
+            logger.warning("LLM analysis plan generation failed: %s", e)
 
     # Compliance mapping (GB/T 35273, PCI DSS, ISO 27001)
     if profile_name in ("standard", "deep"):
@@ -359,25 +537,6 @@ def run(args: argparse.Namespace) -> int:
     claude_output = generate_claude_summary(summary, all_findings)
     print("\n" + claude_output)
 
-    # LLM analysis plan — the CORE of LLM-primary architecture
-    if profile_name in ("standard", "deep"):
-        logger.info("Generating LLM analysis plan...")
-        try:
-            llm_plan = generate_analysis_plan(
-                findings=all_findings,
-                project=project,
-                project_root=target,
-                config=config,
-            )
-            plan_path = save_analysis_plan(llm_plan, output_dir)
-            logger.info("LLM analysis plan: %s (%d targets, archetype=%s)",
-                        plan_path, len(llm_plan.get("analysis_targets", [])),
-                        llm_plan.get("project_archetype", "unknown"))
-            summary["llm_analysis_targets"] = len(llm_plan.get("analysis_targets", []))
-            summary["project_archetype"] = llm_plan.get("project_archetype", "unknown")
-        except Exception as e:
-            logger.warning("LLM analysis plan generation failed: %s", e)
-
     _write_tool_versions(output_dir, scan_results)
 
     # Save scan history
@@ -409,6 +568,8 @@ def run(args: argparse.Namespace) -> int:
     exit_code = get_exit_code(gate_result)
     if exit_code != 0:
         logger.warning("CI gate FAILED: %d findings at or above '%s'", blocking_count, fail_on)
+    if staged_target:
+        staged_target.cleanup()
     return exit_code
 
 
@@ -438,6 +599,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--baseline", help="Baseline file path")
     parser.add_argument("--config", help="Config file path")
     parser.add_argument("--tool-timeout", type=int, help="Per-tool timeout in seconds")
+    parser.add_argument("--llm-findings", help="Import LLM findings JSON and merge into final results")
     parser.add_argument("--pr-comment", action="store_true", help="Post results as GitHub PR comment")
     return parser.parse_args(argv)
 

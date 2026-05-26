@@ -22,6 +22,10 @@ RULES_DIR = os.path.join(
     os.path.dirname(__file__), "..",
     ".claude", "skills", "sast-scan", "rules", "semgrep",
 )
+SEMGREP_ENV = {
+    "SEMGREP_SEND_METRICS": "off",
+    "SEMGREP_ENABLE_VERSION_CHECK": "0",
+}
 
 COMMENT_PATTERNS = {
     ".py": ("# ruleid: ", "# ok: "),
@@ -72,6 +76,7 @@ def _run_semgrep_on_file(file_path: str) -> list[dict]:
                 file_path,
             ],
             capture_output=True, text=True, timeout=30,
+            env={**os.environ, **SEMGREP_ENV},
         )
         if result.returncode not in (0, 1, 2):
             return []
@@ -128,10 +133,13 @@ class TestCorpusValidation:
     @pytest.fixture(autouse=True)
     def _check_semgrep(self):
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ["semgrep", "--version"],
                 capture_output=True, timeout=10,
+                env={**os.environ, **SEMGREP_ENV},
             )
+            if result.returncode != 0:
+                pytest.skip("Semgrep installed but unusable in current environment")
         except FileNotFoundError:
             pytest.skip("Semgrep not installed")
 

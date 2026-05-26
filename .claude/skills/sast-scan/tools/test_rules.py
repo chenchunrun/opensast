@@ -3,12 +3,21 @@
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
 RULES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rules", "semgrep")
+SEMGREP_ENV = {
+    "SEMGREP_SEND_METRICS": "off",
+    "SEMGREP_ENABLE_VERSION_CHECK": "0",
+}
 
 
 def discover_rule_tests(rules_dir: str = RULES_DIR) -> list[dict]:
@@ -17,19 +26,174 @@ def discover_rule_tests(rules_dir: str = RULES_DIR) -> list[dict]:
         return entries
     for lang in sorted(os.listdir(rules_dir)):
         lang_dir = os.path.join(rules_dir, lang)
-        rules_file = os.path.join(lang_dir, "rules.yml")
-        if not os.path.isfile(rules_file):
+        if not os.path.isdir(lang_dir):
             continue
         test_dir = os.path.join(lang_dir, "tests")
         has_tests = os.path.isdir(test_dir) and any(
             f for f in os.listdir(test_dir) if not f.startswith(".")
         )
-        entries.append({
-            "language": lang,
-            "rule_path": rules_file,
-            "test_dir": test_dir if has_tests else None,
-        })
+        rule_files = sorted(
+            os.path.join(lang_dir, name)
+            for name in os.listdir(lang_dir)
+            if name.endswith((".yml", ".yaml")) and os.path.isfile(os.path.join(lang_dir, name))
+        )
+        for rule_path in rule_files:
+            rule_ids = _load_rule_ids(rule_path)
+            matching_test_files = _collect_matching_test_files(test_dir, rule_ids) if has_tests else []
+            entries.append({
+                "language": lang,
+                "rule_path": rule_path,
+                "test_dir": test_dir if matching_test_files else None,
+                "test_files": matching_test_files,
+                "rule_ids": rule_ids,
+            })
     return entries
+
+
+def _load_rule_ids(rule_path: str) -> list[str]:
+    try:
+        with open(rule_path, encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except OSError:
+        return []
+    return [rule.get("id") for rule in data.get("rules", []) if rule.get("id")]
+
+
+def _collect_test_ruleids(test_dir: str) -> set[str]:
+    ruleids: set[str] = set()
+    for path in Path(test_dir).iterdir():
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                lower = line.lower()
+                if "ruleid:" not in lower:
+                    continue
+                _, _, suffix = line.partition("ruleid:")
+                candidate = suffix.strip()
+                if candidate:
+                    ruleids.add(candidate)
+    return ruleids
+
+
+def _collect_matching_test_files(test_dir: str, rule_ids: list[str]) -> list[str]:
+    if not test_dir or not os.path.isdir(test_dir) or not rule_ids:
+        return []
+    selected: list[str] = []
+    rule_id_set = set(rule_ids)
+    for path in sorted(Path(test_dir).iterdir()):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            content = fh.read()
+        if not any(rule_id in content for rule_id in rule_id_set):
+            continue
+        selected.append(str(path))
+    return selected
+
+
+def audit_rule_coverage(rules_dir: str = RULES_DIR) -> dict:
+    entries = discover_rule_tests(rules_dir)
+    languages: dict[str, dict] = {}
+
+    for entry in entries:
+        language = entry["language"]
+        stats = languages.setdefault(language, {
+            "language": language,
+            "rule_files": 0,
+            "test_files": 0,
+            "total_rules": 0,
+            "covered_rules": 0,
+            "coverage_pct": 0.0,
+            "uncovered_rules": [],
+        })
+
+        stats["rule_files"] += 1
+        rule_ids = [rule_id for rule_id in entry.get("rule_ids", []) if rule_id]
+        stats["total_rules"] += len(rule_ids)
+        test_files = entry.get("test_files") or []
+        stats["test_files"] += len(test_files)
+
+        covered_rule_ids = set()
+        if test_files:
+            combined = []
+            for path in test_files:
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        combined.append(fh.read())
+                except OSError:
+                    continue
+            combined_content = "\n".join(combined)
+            covered_rule_ids = {rule_id for rule_id in rule_ids if rule_id in combined_content}
+
+        stats["covered_rules"] += len(covered_rule_ids)
+        stats["uncovered_rules"].extend(
+            sorted(rule_id for rule_id in rule_ids if rule_id not in covered_rule_ids)
+        )
+
+    language_rows = []
+    total_rules = 0
+    covered_rules = 0
+    total_rule_files = 0
+    total_test_files = 0
+
+    for language in sorted(languages):
+        stats = languages[language]
+        if stats["total_rules"]:
+            stats["coverage_pct"] = round(stats["covered_rules"] / stats["total_rules"] * 100, 1)
+        stats["uncovered_rules"] = sorted(set(stats["uncovered_rules"]))
+        language_rows.append(stats)
+        total_rules += stats["total_rules"]
+        covered_rules += stats["covered_rules"]
+        total_rule_files += stats["rule_files"]
+        total_test_files += stats["test_files"]
+
+    coverage_pct = round(covered_rules / total_rules * 100, 1) if total_rules else 100.0
+    return {
+        "languages": language_rows,
+        "summary": {
+            "rule_files": total_rule_files,
+            "test_files": total_test_files,
+            "total_rules": total_rules,
+            "covered_rules": covered_rules,
+            "coverage_pct": coverage_pct,
+        },
+    }
+
+
+def format_rule_coverage_markdown(coverage: dict) -> str:
+    lines = [
+        "# Rule Coverage Audit",
+        "",
+        "| Language | Rule Files | Test Files | Covered / Total | Coverage | Uncovered |",
+        "|----------|------------|------------|-----------------|----------|-----------|",
+    ]
+    for row in coverage.get("languages", []):
+        uncovered = ", ".join(row["uncovered_rules"]) if row["uncovered_rules"] else "-"
+        lines.append(
+            f"| {row['language']} | {row['rule_files']} | {row['test_files']} | "
+            f"{row['covered_rules']} / {row['total_rules']} | {row['coverage_pct']}% | {uncovered} |"
+        )
+
+    summary = coverage.get("summary", {})
+    lines.extend([
+        "",
+        f"Overall coverage: {summary.get('covered_rules', 0)} / {summary.get('total_rules', 0)} "
+        f"rules ({summary.get('coverage_pct', 0.0)}%)",
+    ])
+    return "\n".join(lines)
+
+
+def write_rule_coverage_report(coverage: dict, output_path: str) -> None:
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    if output_path.endswith(".md"):
+        content = format_rule_coverage_markdown(coverage)
+    else:
+        content = json.dumps(coverage, indent=2, ensure_ascii=False)
+    with open(output_path, "w", encoding="utf-8") as fh:
+        fh.write(content)
 
 
 def validate_rules(rules_dir: str = RULES_DIR) -> dict:
@@ -48,6 +212,7 @@ def validate_rules(rules_dir: str = RULES_DIR) -> dict:
             result = subprocess.run(
                 ["semgrep", "--validate", "--config", rule_path],
                 capture_output=True, text=True, timeout=60,
+                env={**os.environ, **SEMGREP_ENV},
             )
             if result.returncode != 0:
                 errors.append(f"{rule_path}: {result.stderr.strip() or result.stdout.strip()}")
@@ -72,39 +237,46 @@ def test_rules(rules_dir: str = RULES_DIR, verbose: bool = False) -> dict:
     for entry in entries:
         rule_path = entry["rule_path"]
         test_dir = entry["test_dir"]
-        if not test_dir or not os.path.isdir(test_dir):
+        test_files = entry.get("test_files") or []
+        if not test_dir or not os.path.isdir(test_dir) or not test_files:
             continue
 
         try:
-            cmd = ["semgrep", "--test", "--config", rule_path, test_dir]
-            if verbose:
-                cmd.append("--verbose")
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120,
-            )
-            output = proc.stdout + proc.stderr
+            with tempfile.TemporaryDirectory(prefix="opensast-rule-tests-") as staged_dir:
+                for path in test_files:
+                    shutil.copy2(path, os.path.join(staged_dir, os.path.basename(path)))
+                cmd = ["semgrep", "--test", "--config", rule_path, staged_dir]
+                if verbose:
+                    cmd.append("--verbose")
+                proc = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=120,
+                    env={**os.environ, **SEMGREP_ENV},
+                )
+                output = proc.stdout + proc.stderr
 
-            entry_result = {
-                "language": entry["language"],
-                "rule_path": rule_path,
-                "test_dir": test_dir,
-                "exit_code": proc.returncode,
-                "output": output,
-                "passed": proc.returncode == 0,
-            }
+                entry_result = {
+                    "language": entry["language"],
+                    "rule_path": rule_path,
+                    "test_dir": test_dir,
+                    "test_files": test_files,
+                    "exit_code": proc.returncode,
+                    "output": output,
+                    "passed": proc.returncode == 0,
+                }
 
-            if "test files" in output:
-                total += 1
-                if proc.returncode == 0:
-                    passed += 1
-                else:
-                    failed += 1
+                if "test files" in output:
+                    total += 1
+                    if proc.returncode == 0:
+                        passed += 1
+                    else:
+                        failed += 1
 
         except subprocess.TimeoutExpired:
             entry_result = {
                 "language": entry["language"],
                 "rule_path": rule_path,
                 "test_dir": test_dir,
+                "test_files": test_files,
                 "exit_code": -1,
                 "output": "timed out",
                 "passed": False,
@@ -135,10 +307,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Test Semgrep custom rules")
     parser.add_argument("--rules-dir", default=RULES_DIR, help="Rules directory")
     parser.add_argument("--validate-only", action="store_true", help="Only validate, don't test")
+    parser.add_argument(
+        "--coverage-report",
+        help="Write rule coverage audit to a .json or .md file",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
+
+    coverage = audit_rule_coverage(args.rules_dir)
+    summary = coverage["summary"]
+    print(
+        "Coverage: "
+        f"{summary['covered_rules']}/{summary['total_rules']} rules "
+        f"({summary['coverage_pct']}%) across {summary['rule_files']} rule files"
+    )
+    if args.coverage_report:
+        write_rule_coverage_report(coverage, args.coverage_report)
+        print(f"Coverage report: {args.coverage_report}")
 
     val = validate_rules(args.rules_dir)
     print(f"Validation: {'PASS' if val['valid'] else 'FAIL'} ({val['rules_checked']} rule files)")

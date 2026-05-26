@@ -67,21 +67,15 @@ pattern-sinks:
 
 ### Testing Rules
 
-Test files go in `.claude/skills/sast-scan/rules/tests/`:
-
-```
-rules/tests/
-├── vulnerable/       # Files that SHOULD trigger the rule
-│   └── test_cmd_injection.py
-└── safe/             # Files that should NOT trigger the rule
-    └── test_safe_subprocess.py
-```
+Test files go in the matching language directory, for example
+`.claude/skills/sast-scan/rules/semgrep/python/tests/` or
+`.claude/skills/sast-scan/rules/semgrep/javascript/tests/`.
 
 Each test must include:
 1. At least one positive case (should trigger)
 2. At least one negative case (should not trigger)
-3. Expected line numbers
-4. Fix suggestion as a comment
+3. `ruleid:` comments that reference the matching rule ID
+4. `ok:` comments for safe cases in the same file
 
 ### Validating Rules
 
@@ -89,11 +83,10 @@ Each test must include:
 # Validate rule syntax
 semgrep --validate --config .claude/skills/sast-scan/rules/semgrep/python/rules.yml
 
-# Test against vulnerable code
-semgrep --config .claude/skills/sast-scan/rules/semgrep/python/rules.yml tests/fixtures/vulnerable-python/
-
-# Test against safe code (should find nothing)
-semgrep --config .claude/skills/sast-scan/rules/semgrep/python/rules.yml rules/tests/safe/
+# Validate and run the repository rule test harness
+python3 .claude/skills/sast-scan/tools/test_rules.py \
+  --rules-dir .claude/skills/sast-scan/rules/semgrep \
+  --coverage-report .claude/sast/results/rule-coverage.md
 ```
 
 ## CWE/OWASP Mapping
@@ -117,7 +110,7 @@ Full mapping table in `.claude/skills/sast-scan/config/language-map.yml`.
 
 1. Create directory: `rules/semgrep/<language>/`
 2. Write rules following the structure above
-3. Add positive test in `rules/tests/vulnerable/`
-4. Add negative test in `rules/tests/safe/`
+3. Add a `tests/` directory under that language
+4. Add positive `ruleid:` and negative `ok:` cases for each rule
 5. Validate with `semgrep --validate`
-6. Run against test fixtures
+6. Run `test_rules.py` and check the coverage audit for uncovered rule IDs

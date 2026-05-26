@@ -128,6 +128,40 @@ def add_suppression(
     return baseline
 
 
+def remove_suppression(baseline: dict, fingerprint: str) -> dict:
+    suppressions = baseline.get("suppressions", [])
+    updated = [s for s in suppressions if s.get("fingerprint") != fingerprint]
+    baseline["suppressions"] = updated
+    baseline["updated_at"] = _utcnow_iso()
+    return baseline
+
+
+def update_baseline(baseline: dict, findings: list[dict]) -> dict:
+    baseline.setdefault("fingerprints", {})
+    for f in findings:
+        fp = f.get("fingerprint", "")
+        if not fp:
+            continue
+
+        entry = baseline["fingerprints"].get(fp, {})
+        first_seen = entry.get("first_seen", _utcnow_iso())
+        baseline["fingerprints"][fp] = {
+            "first_seen": first_seen,
+            "last_seen": _utcnow_iso(),
+            "tool": f.get("tool", entry.get("tool", "")),
+            "rule_id": f.get("rule_id", entry.get("rule_id", "")),
+            "file": f.get("file", entry.get("file", "")),
+            "severity": f.get("severity", entry.get("severity", "info")),
+        }
+
+        fp_v1 = f.get("fingerprint_v1", "")
+        if fp_v1 and fp_v1 != fp:
+            baseline["fingerprints"][fp_v1] = baseline["fingerprints"][fp]
+
+    baseline["updated_at"] = _utcnow_iso()
+    return baseline
+
+
 def is_suppressed(finding: dict, baseline: dict) -> bool:
     fp = finding.get("fingerprint", "")
     now = datetime.now(timezone.utc)
