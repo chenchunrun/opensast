@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE_BYTES = 1_000_000
 CONTEXT_LINES = 15
-MAX_TARGETS_DEFAULT = 15
+MAX_TARGETS_DEFAULT = 20
+MAX_DISCOVER_DEFAULT = 25
 MAX_FILE_LINES_FULL = 200
 
 # --- Archetype context messages ---
@@ -575,6 +576,51 @@ def _generate_explore_prompt(file_path: str, context: dict, archetype: str) -> s
 # Discovery targets — analysis areas rules CAN'T detect
 # ============================================================
 
+PLACEHOLDER_PATTERN = re.compile(
+    r"(change[-_]?me|placeholder|your[-_].*[-_]?here|default[-_]?key|"
+    r"secret[-_]?here|replace[-_]?me|xxx+|example[-_]?.*|"
+    r"^.{1,8}$)",
+    re.IGNORECASE,
+)
+
+SECRET_KEY_PATTERN = re.compile(
+    r"(SECRET|KEY|PASSWORD|TOKEN|ENCRYPTION|AUTH|SALT|PASS)",
+    re.IGNORECASE,
+)
+
+
+def _scan_env_for_weaknesses(env_files: list[str], project_root: str) -> list[dict]:
+    """Pre-scan .env files for placeholder/weak secret indicators."""
+    weaknesses: list[dict] = []
+    for env_file in env_files:
+        full_path = os.path.join(project_root, env_file) if not os.path.isabs(env_file) else env_file
+        try:
+            with open(full_path, encoding="utf-8", errors="ignore") as fh:
+                for line_num, line in enumerate(fh, 1):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, _, value = line.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if not value:
+                        continue
+                    is_placeholder = bool(PLACEHOLDER_PATTERN.search(value))
+                    is_short = len(value) < 8
+                    is_secret_key = bool(SECRET_KEY_PATTERN.search(key))
+                    if is_secret_key and (is_placeholder or is_short):
+                        weaknesses.append({
+                            "file": env_file,
+                            "line": line_num,
+                            "variable": key,
+                            "weakness": "placeholder" if is_placeholder else "too-short",
+                        })
+        except OSError:
+            continue
+    return weaknesses
+
 def _generate_discover_targets(
     project_root: str,
     project: dict,
@@ -583,7 +629,8 @@ def _generate_discover_targets(
     middleware_info: dict,
     archetype: str,
     existing_files: set[str],
-    max_discover: int = 20,
+    max_discover: int = 25,
+    config: dict | None = None,
 ) -> list[dict]:
     """Generate discovery targets based on code structure, not rule findings.
 
@@ -593,6 +640,7 @@ def _generate_discover_targets(
     """
     targets = []
     files_in_plan = set(existing_files)
+    idor_files_in_plan: set[str] = set()
     target_counter = [0]
 
     def _next_id() -> str:
@@ -604,20 +652,24 @@ def _generate_discover_targets(
     for ep in entry_points:
         content = ep.get("content", "")
         file_path = ep.get("file", "")
-        if file_path in files_in_plan:
+        if file_path in idor_files_in_plan:
             continue
         # Routes with [id] or :id patterns are IDOR candidates
         if re.search(r"\[id\]|\[.*Id\]|:id|params.*id", file_path + content):
             param_routes.append(ep)
 
     if param_routes and archetype in ("web-app", "serverless"):
-        # Group by file
+        # Group by file, cap at 10 to leave budget for other discover types
         by_file: dict[str, list[dict]] = {}
         for ep in param_routes:
             by_file.setdefault(ep["file"], []).append(ep)
 
+        idor_count = 0
+        MAX_IDOR_TARGETS = 10
         for file_path, eps in sorted(by_file.items()):
-            if file_path in files_in_plan:
+            if idor_count >= MAX_IDOR_TARGETS:
+                break
+            if file_path in idor_files_in_plan:
                 continue
             if len(targets) >= max_discover:
                 break
@@ -686,15 +738,28 @@ def _generate_discover_targets(
                 "context": context,
                 "analysis_prompt": prompt,
             })
-            files_in_plan.add(file_path)
+            idor_files_in_plan.add(file_path)
+            idor_count += 1
 
     # --- 2. Credential / Config security ---
     env_files = _find_env_files(project_root)
     if env_files:
+        weaknesses = _scan_env_for_weaknesses(env_files, project_root)
+        weakness_summary = ""
+        if weaknesses:
+            weakness_summary = (
+                f"\n\nPRE-SCANNED WEAKNESS INDICATORS ({len(weaknesses)} found):\n"
+                + "\n".join(
+                    f"  - {w['variable']} in {w['file']}:{w['line']} — {w['weakness']}"
+                    for w in weaknesses[:10]
+                )
+                + "\n\nVerify these are actual placeholder/weak values.\n"
+            )
         env_prompt = (
             "Credential Security Analysis\n"
             f"Project type: {archetype}\n"
-            f"Found .env files: {len(env_files)}\n\n"
+            f"Found .env files: {len(env_files)}\n"
+            f"{weakness_summary}\n"
             "DISCOVERY ANALYSIS:\n"
             "1. Check if .env contains REAL credentials (not just placeholders/examples)\n"
             "   - Real SMTP passwords, database passwords, API keys = CRITICAL\n"
@@ -713,7 +778,7 @@ def _generate_discover_targets(
             "priority_score": 10,
             "file": ", ".join(env_files[:5]),
             "risks": ["hardcoded-credentials", "weak-secrets"],
-            "context": {"env_files": env_files},
+            "context": {"env_files": env_files, "weakness_indicators": weaknesses},
             "analysis_prompt": env_prompt,
         })
 
@@ -748,6 +813,47 @@ def _generate_discover_targets(
                 "analysis_prompt": mw_prompt,
             })
             files_in_plan.add(mw_file)
+    elif archetype in ("web-app", "serverless") and entry_points:
+        # No middleware.ts — check per-route auth patterns for timing attacks
+        auth_sensitive_routes = []
+        for ep in entry_points:
+            ep_content = ep.get("content", "")
+            ep_file = ep.get("file", "")
+            if any(kw in (ep_content + ep_file).lower() for kw in
+                   ["token", "secret", "api-key", "apikey", "bearer",
+                    "cron", "scheduler", "webhook", "scim", "maintenance"]):
+                auth_sensitive_routes.append(ep)
+
+        if auth_sensitive_routes and len(targets) < max_discover:
+            route_files = sorted(set(ep["file"] for ep in auth_sensitive_routes[:8]))
+            no_mw_prompt = (
+                f"Per-Route Auth Analysis (No Global Middleware)\n"
+                f"Project type: {archetype}\n"
+                f"No middleware.ts detected. {len(auth_sensitive_routes)} routes handle auth manually.\n\n"
+                "DISCOVERY ANALYSIS:\n"
+                "1. For each route that accepts tokens/secrets, check the comparison method:\n"
+                "   - Using !== or != for token comparison = timing attack (CWE-208)\n"
+                "   - Should use crypto.timingSafeEqual or similar constant-time comparison\n"
+                "2. Check SCIM webhook handlers — is the signature verified timing-safely?\n"
+                "3. Check scheduler/maintenance endpoints — are their tokens compared safely?\n"
+                "4. Check if API keys are validated via constant-time comparison\n"
+                "5. Report routes with timing-unsafe token comparisons"
+            )
+            targets.append({
+                "target_id": _next_id(),
+                "type": "discover_auth_chain",
+                "priority": "high",
+                "priority_score": 7,
+                "file": ", ".join(route_files[:5]),
+                "risks": ["timing-attack", "missing-authentication"],
+                "context": {
+                    "routes": [
+                        {"file": ep["file"], "content": ep["content"][:120]}
+                        for ep in auth_sensitive_routes[:10]
+                    ],
+                },
+                "analysis_prompt": no_mw_prompt,
+            })
 
     # --- 4. Crypto / Encryption analysis ---
     crypto_files = [sf for sf in security_files if re.search(
@@ -939,6 +1045,205 @@ def _generate_discover_targets(
             })
             files_in_plan.add(sf)
 
+    # --- 8. CSRF protection analysis ---
+    llm_config = (config or {}).get("llm_orchestration", {})
+    discover_types_cfg = llm_config.get("discover_types", {})
+
+    if (archetype in ("web-app", "serverless")
+            and discover_types_cfg.get("csrf", {}).get("enabled", True)):
+        csrf_prompt = (
+            f"CSRF Protection Analysis\n"
+            f"Project type: {archetype}\n"
+            f"Entry points with write methods: "
+            f"{sum(1 for ep in entry_points if re.search(r'POST|PUT|PATCH|DELETE', ep.get('content', '')))}\n\n"
+            "DISCOVERY ANALYSIS:\n"
+            "1. Check authentication method: Bearer token (CSRF-safe) vs cookies (CSRF-vulnerable)\n"
+            "2. For cookie-authenticated endpoints, look for CSRF token verification\n"
+            "3. Check if NextAuth/Next.js CSRF is disabled in development mode\n"
+            "4. Look for skipCsrfCheck, csrf.disabled, or NODE_ENV-based CSRF bypass patterns\n"
+            "5. Check if SameSite cookie attribute is set\n"
+            "6. Report endpoints using cookie auth without CSRF protection"
+        )
+        if len(targets) < max_discover:
+            targets.append({
+                "target_id": _next_id(),
+                "type": "discover_csrf",
+                "priority": "medium",
+                "priority_score": 5,
+                "file": "cross-cutting",
+                "risks": ["missing-csrf"],
+                "context": {},
+                "analysis_prompt": csrf_prompt,
+            })
+
+    # --- 9. Rate limiting coverage ---
+    if (archetype in ("web-app", "serverless")
+            and discover_types_cfg.get("rate_limiting", {}).get("enabled", True)):
+        rl_prompt = (
+            f"Rate Limiting Coverage Analysis\n"
+            f"Project type: {archetype}\n\n"
+            "DISCOVERY ANALYSIS:\n"
+            "1. Search for rate limiting middleware or decorators (rateLimit, rateLimiter, checkRateLimit)\n"
+            "2. Which API endpoints are protected by rate limiting?\n"
+            "3. Check authentication endpoints (login, register, password reset) — are they rate limited?\n"
+            "4. Is the rate limiter using a spoofable IP source "
+            "(X-Forwarded-For without trusted proxy check)?\n"
+            "5. Can rate limits be bypassed by varying headers, path casing, or HTTP method?\n"
+            "6. Is rate limiting stored in-memory (resets on restart) vs persistent store?\n"
+            "7. Report unprotected sensitive endpoints and rate limiter bypass vectors"
+        )
+        if len(targets) < max_discover:
+            targets.append({
+                "target_id": _next_id(),
+                "type": "discover_rate_limiting",
+                "priority": "medium",
+                "priority_score": 4,
+                "file": "cross-cutting",
+                "risks": ["missing-rate-limiting"],
+                "context": {},
+                "analysis_prompt": rl_prompt,
+            })
+
+    # --- 10. Mass assignment / auto-binding ---
+    if (archetype in ("web-app", "serverless")
+            and discover_types_cfg.get("mass_assignment", {}).get("enabled", True)):
+        write_eps = [
+            ep for ep in entry_points
+            if re.search(r"POST|PUT|PATCH", ep.get("content", ""))
+        ]
+        if write_eps and len(targets) < max_discover:
+            ma_prompt = (
+                f"Mass Assignment / Role Injection Analysis\n"
+                f"Project type: {archetype}\n"
+                f"Write endpoints found: {len(write_eps)}\n\n"
+                "DISCOVERY ANALYSIS:\n"
+                "1. Find endpoints that accept request bodies (request.json(), formData())\n"
+                "2. Check if the body is spread directly into DB operations: "
+                "prisma.X.create({ data: { ...body } })\n"
+                "3. Is there field whitelisting (z.object, pick, omit) before DB writes?\n"
+                "4. Can users inject 'role', 'isAdmin', 'email', 'password' fields?\n"
+                "5. Check for destructuring patterns: const { name, ...rest } = body; db.update(rest)\n"
+                "6. Report endpoints where user input flows to DB without field restriction"
+            )
+            targets.append({
+                "target_id": _next_id(),
+                "type": "discover_mass_assignment",
+                "priority": "high",
+                "priority_score": 7,
+                "file": "cross-cutting",
+                "risks": ["mass-assignment"],
+                "context": {
+                    "write_endpoints": [
+                        {"file": ep["file"], "content": ep["content"][:80]}
+                        for ep in write_eps[:10]
+                    ],
+                },
+                "analysis_prompt": ma_prompt,
+            })
+
+    # --- 11. Security headers ---
+    if (archetype in ("web-app", "serverless")
+            and discover_types_cfg.get("security_headers", {}).get("enabled", True)):
+        sh_prompt = (
+            f"Security Headers Analysis\n"
+            f"Project type: {archetype}\n\n"
+            "DISCOVERY ANALYSIS:\n"
+            "1. Search for next.config.js/ts — is there a headers() function defining security headers?\n"
+            "2. Check for: Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, HSTS\n"
+            "3. Is Strict-Transport-Security set with includeSubDomains and preload?\n"
+            "4. Does CSP allow 'unsafe-inline' or 'unsafe-eval' for scripts?\n"
+            "5. Check middleware for security header injection\n"
+            "6. Report missing or weak security header configurations"
+        )
+        if len(targets) < max_discover:
+            targets.append({
+                "target_id": _next_id(),
+                "type": "discover_security_headers",
+                "priority": "medium",
+                "priority_score": 3,
+                "file": "cross-cutting",
+                "risks": ["missing-security-headers"],
+                "context": {},
+                "analysis_prompt": sh_prompt,
+            })
+
+    # --- 12. Configuration security (placeholder secrets, debug, CORS) ---
+    if discover_types_cfg.get("config_security", {}).get("enabled", True):
+        config_files = env_files + [
+            sf for sf in security_files
+            if re.search(r"next\.config|vite\.config|nuxt\.config|cors", sf, re.IGNORECASE)
+        ]
+        if config_files and len(targets) < max_discover:
+            cs_prompt = (
+                f"Configuration Security Analysis\n"
+                f"Project type: {archetype}\n"
+                f"Config files found: {len(config_files)}\n\n"
+                "DISCOVERY ANALYSIS:\n"
+                "1. Check .env for placeholder/unchanged secrets:\n"
+                "   - NEXTAUTH_SECRET='placeholder...' or 'change-me' or 'your-secret-here'\n"
+                "   - ENCRYPTION_KEY='default-encryption-key' or 'changeme'\n"
+                "   - Any secret with value equal to its name or a known placeholder pattern\n"
+                "2. Check next.config for debug/dev flags left enabled\n"
+                "3. Check CORS configuration: are wildcard origins (*) used in production?\n"
+                "4. Check for hardcoded encryption salts or IVs with default fallbacks\n"
+                "5. Are there DATABASE_URL values pointing to local/test instances?\n"
+                "6. Report each weak/placeholder secret by variable name (NOT value)"
+            )
+            targets.append({
+                "target_id": _next_id(),
+                "type": "discover_config_security",
+                "priority": "high",
+                "priority_score": 8,
+                "file": ", ".join(config_files[:5]),
+                "risks": ["placeholder-secrets", "debug-mode", "cors-misconfig"],
+                "context": {"config_files": config_files},
+                "analysis_prompt": cs_prompt,
+            })
+
+    # --- 13. Global cross-cutting sweep ---
+    if (archetype in ("web-app", "serverless")
+            and discover_types_cfg.get("global_sweep", {}).get("enabled", True)
+            and len(targets) < max_discover):
+        sweep_prompt = (
+            f"Cross-Cutting Security Sweep\n"
+            f"Project type: {archetype}\n"
+            f"Security files found: {len(security_files)}\n"
+            f"Entry points found: {len(entry_points)}\n\n"
+            "DISCOVERY ANALYSIS — Check for patterns that structured rules miss:\n"
+            "1. Email templates: Are user-supplied values (names, content) inserted into HTML emails "
+            "without escaping? This is email XSS (CWE-79).\n"
+            "2. Export/download features: Do CSV/PDF/Excel exports include user-controlled headers "
+            "without sanitization? This is header injection (CWE-113).\n"
+            "3. Legacy/compatibility code paths: Is there an old decryption fallback that uses "
+            "insecure algorithms? Check for try/catch around modern crypto that falls back to legacy.\n"
+            "4. Comment/notification authorization: Can users access other users' comments "
+            "or notifications without ownership checks?\n"
+            "5. Rate limiter implementation: If using IP-based rate limiting with X-Forwarded-For, "
+            "is the trusted proxy configured? Otherwise IP spoofing bypasses the limit.\n"
+            "6. File upload: Are uploaded files served with correct Content-Type? Can SVG uploads "
+            "execute JavaScript (stored XSS via content type sniffing)?\n"
+            "7. Search each security file for these patterns and report confirmed issues"
+        )
+        targets.append({
+            "target_id": _next_id(),
+            "type": "discover_global_sweep",
+            "priority": "high",
+            "priority_score": 6,
+            "file": "cross-cutting",
+            "risks": [
+                "email-xss", "header-injection", "legacy-crypto",
+                "idor-risk", "rate-limit-bypass",
+            ],
+            "context": {
+                "security_files": security_files[:15],
+                "entry_points_summary": [
+                    {"file": ep["file"], "content": ep["content"][:60]}
+                    for ep in entry_points[:20]
+                ],
+            },
+            "analysis_prompt": sweep_prompt,
+        })
+
     return targets
 
 
@@ -1007,6 +1312,7 @@ def generate_analysis_plan(
     archetype = project.get("archetype", "library")
     llm_config = config.get("llm_orchestration", config.get("llm_analysis", {}))
     max_targets = llm_config.get("max_targets", MAX_TARGETS_DEFAULT)
+    max_discover = llm_config.get("max_discover_targets", MAX_DISCOVER_DEFAULT)
 
     # Security file detection
     security_files = find_security_files(project_root)
@@ -1093,7 +1399,8 @@ def generate_analysis_plan(
         middleware_info=middleware_info,
         archetype=archetype,
         existing_files=target_files_in_plan,
-        max_discover=max_targets,
+        max_discover=max_discover,
+        config=config,
     )
 
     # Summarize findings

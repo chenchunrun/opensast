@@ -122,9 +122,29 @@ archetype_detection:
 
 llm_orchestration:
   enabled: true
-  max_targets: 15
+  max_targets: 20
+  max_discover_targets: 25
   context_lines: 15
   max_file_lines: 200
+  discover_types:
+    csrf:
+      enabled: true
+      priority: medium
+    rate_limiting:
+      enabled: true
+      priority: medium
+    mass_assignment:
+      enabled: true
+      priority: high
+    security_headers:
+      enabled: true
+      priority: medium
+    config_security:
+      enabled: true
+      priority: high
+    global_sweep:
+      enabled: true
+      priority: high
   archetype_strategies:
     web-app:
       elevate_patterns:
