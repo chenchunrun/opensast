@@ -28,15 +28,13 @@
 | `standard` | 2-10 分钟 | Semgrep + Gitleaks + Checkov | 常规仓库扫描 |
 | `deep` | 10+ 分钟 | 全部 + CodeQL | 安全审计 / CI 夜间任务 |
 
-### LLM 增强分析
+### LLM + AI Agent 三层架构
 
-OpenSAST 采用 LLM-Primary 架构：规则扫描器产生原始信号，Claude 作为主分析器进行验证、上下文丰富和误报过滤。核心能力包括：
+OpenSAST 采用三层 SAST 架构（Rules + LLM + AI Agent），规则扫描器产生原始信号，Claude 作为主分析器进行验证和发现，AI Agent 进行自由推理覆盖跨模块漏洞：
 
-- **发现验证** — 对规则引擎的原始发现进行上下文验证，降低误报
-- **安全发现** — 识别规则引擎无法覆盖的安全问题（如鉴权链缺失、RBAC 配置错误）
-- **污点追踪** — 分析数据从 source 到 sink 的传播路径
-- **数据流分析** — 追踪用户输入在代码中的流转
-- **合规映射** — 将发现映射到 CWE、OWASP Top 10、OWASP ASVS
+- **Phase A — 规则发现验证** — 对规则引擎的原始发现进行上下文验证，快速排除误报
+- **Phase B — LLM 结构化发现** — 13 种 discover 类型分析（IDOR、凭据、认证链、加密、SSRF、SQL 注入、CSRF、限流、批量赋值、安全头、配置安全、CLI 配置、全局扫描）
+- **Phase C — AI Agent 自由推理** — 跨模块数据流追踪、业务逻辑缺陷、代码意图理解
 
 ### 多格式报告
 
@@ -48,15 +46,14 @@ OpenSAST 采用 LLM-Primary 架构：规则扫描器产生原始信号，Claude 
 
 | 命令 | 用途 |
 |------|------|
-| `/sast-scan` | 执行安全扫描，当前最完整的主执行链 |
-| `/sast-triage` | 分析误报、优先级排序、生成分类报告，已提供结构化 triage 入口 |
-| `/sast-fix` | 针对指定发现生成标准化修复建议，并可触发定向复扫 |
-| `/sast-baseline` | 管理基线，抑制已确认的风险，关注新增问题，已提供基线管理入口 |
+| `/sast-scan` | 三层架构安全扫描（规则 + LLM + AI Agent），主执行链 |
+| `/sast-triage` | 三阶段分类（自动分桶 → LLM 验证 → 推荐修复），含基线导出 |
+| `/sast-fix` | 三阶段修复（模板匹配 → LLM 自定义 → 验证），支持 apply/rollback/分支 |
+| `/sast-baseline` | 全生命周期基线管理（10 个命令：create/update/show/suppress/unsuppress/diff/stats/audit/cleanup/import） |
 
 说明：
-- `/sast-scan` 已具备完整 runner、报告、gate、CI、LLM findings 导入与覆盖审计链路。
-- `/sast-triage` 与 `/sast-baseline` 现在已有独立 helper 脚本和测试，但整体成熟度仍低于 `/sast-scan` 主链。
-- `/sast-fix` 现在已有独立 helper，可按 finding 生成修复建议并触发定向复扫，但仍不自动改代码。
+- 四个 Skill 均已达到功能完整，具备三层/三阶段工作流、完整测试覆盖和互操作链路。
+- 推荐 End-to-End 工作流：`/sast-scan` → `/sast-triage` → `/sast-baseline`（抑制误报）→ `/sast-fix`（修复真阳性）
 
 ## 使用方式
 
@@ -165,6 +162,13 @@ pip install -r requirements.txt
 | gosec | 见 [gosec 文档](https://github.com/securego/gosec) | 可选（Go 补充） |
 
 未安装的工具会被自动跳过，不影响其他工具的扫描。
+
+### Semgrep 本机运行说明
+
+- OpenSAST 现在优先通过 `pysemgrep` 运行 Semgrep，而不是依赖最脆弱的默认 CLI 启动路径。
+- 运行时会自动注入可写 `HOME`、关闭 metrics / version check，并显式设置证书路径，以规避部分 macOS / pipx 环境下的启动问题。
+- 如果你手工直接执行 `semgrep --version`、`semgrep --validate` 或 `semgrep --test` 仍然失败，而仓库测试可以通过，这通常说明是你本机的 Semgrep 安装形态有问题，不是 OpenSAST 规则本身有问题。
+- 如果需要手工验证，优先尝试 `pysemgrep`，或在更稳的 Python `3.11` / `3.12` 环境中重装 Semgrep。
 
 ### Docker 运行
 

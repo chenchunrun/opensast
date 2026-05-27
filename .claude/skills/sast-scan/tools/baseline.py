@@ -20,6 +20,7 @@ def _empty_baseline() -> dict:
         "updated_at": now,
         "fingerprints": {},
         "suppressions": [],
+        "audit_trail": [],
     }
 
 
@@ -112,9 +113,11 @@ def add_suppression(
 ) -> dict:
     for s in baseline.get("suppressions", []):
         if s.get("fingerprint") == fingerprint:
+            old_reason = s.get("reason", "")
             s["reason"] = reason
             s["owner"] = owner
             s["expires_at"] = expires_at
+            _record_audit(baseline, "update_suppression", fingerprint, f"reason: {old_reason} → {reason}", owner)
             baseline["updated_at"] = _utcnow_iso()
             return baseline
 
@@ -123,15 +126,20 @@ def add_suppression(
         "reason": reason,
         "owner": owner,
         "expires_at": expires_at,
+        "created_at": _utcnow_iso(),
     })
+    _record_audit(baseline, "add_suppression", fingerprint, reason, owner)
     baseline["updated_at"] = _utcnow_iso()
     return baseline
 
 
 def remove_suppression(baseline: dict, fingerprint: str) -> dict:
     suppressions = baseline.get("suppressions", [])
+    removed = [s for s in suppressions if s.get("fingerprint") == fingerprint]
     updated = [s for s in suppressions if s.get("fingerprint") != fingerprint]
     baseline["suppressions"] = updated
+    if removed:
+        _record_audit(baseline, "remove_suppression", fingerprint, f"Removed: {removed[0].get('reason', '')}", removed[0].get("owner", ""))
     baseline["updated_at"] = _utcnow_iso()
     return baseline
 
@@ -181,3 +189,134 @@ def is_suppressed(finding: dict, baseline: dict) -> bool:
             return True
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# New functions: diff, stats, cleanup, import, audit
+# ---------------------------------------------------------------------------
+
+def _record_audit(baseline: dict, action: str, fingerprint: str, detail: str, owner: str) -> None:
+    baseline.setdefault("audit_trail", []).append({
+        "timestamp": _utcnow_iso(),
+        "action": action,
+        "fingerprint": fingerprint,
+        "detail": detail,
+        "owner": owner,
+    })
+
+
+def diff_baselines(baseline_before: dict, baseline_after: dict) -> dict:
+    """Compare two baseline versions and return the diff."""
+    fps_before = set(baseline_before.get("fingerprints", {}).keys())
+    fps_after = set(baseline_after.get("fingerprints", {}).keys())
+
+    sups_before = {s.get("fingerprint") for s in baseline_before.get("suppressions", [])}
+    sups_after = {s.get("fingerprint") for s in baseline_after.get("suppressions", [])}
+
+    return {
+        "fingerprints_added": sorted(fps_after - fps_before),
+        "fingerprints_removed": sorted(fps_before - fps_after),
+        "fingerprints_unchanged": sorted(fps_before & fps_after),
+        "suppressions_added": sorted(sups_after - sups_before),
+        "suppressions_removed": sorted(sups_before - sups_after),
+        "suppressions_unchanged": sorted(sups_before & sups_after),
+    }
+
+
+def get_stats(baseline: dict) -> dict:
+    """Get baseline statistics."""
+    suppressions = baseline.get("suppressions", [])
+    now = datetime.now(timezone.utc)
+
+    expired_count = 0
+    active_count = 0
+    permanent_count = 0
+
+    for s in suppressions:
+        expires = s.get("expires_at")
+        if expires is None:
+            permanent_count += 1
+            active_count += 1
+        else:
+            try:
+                exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                if now >= exp_dt:
+                    expired_count += 1
+                else:
+                    active_count += 1
+            except (ValueError, TypeError):
+                permanent_count += 1
+                active_count += 1
+
+    return {
+        "total_fingerprints": len(baseline.get("fingerprints", {})),
+        "total_suppressions": len(suppressions),
+        "active_suppressions": active_count,
+        "expired_suppressions": expired_count,
+        "permanent_suppressions": permanent_count,
+        "created_at": baseline.get("created_at"),
+        "updated_at": baseline.get("updated_at"),
+    }
+
+
+def cleanup_expired(baseline: dict) -> dict:
+    """Remove expired suppressions from the baseline."""
+    now = datetime.now(timezone.utc)
+    cleaned: list[dict] = []
+    removed: list[str] = []
+
+    for s in baseline.get("suppressions", []):
+        expires = s.get("expires_at")
+        if expires is None:
+            cleaned.append(s)
+            continue
+        try:
+            exp_dt = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if now >= exp_dt:
+                removed.append(s.get("fingerprint", ""))
+                _record_audit(baseline, "cleanup_expired", s.get("fingerprint", ""), "Expired suppression removed", s.get("owner", ""))
+            else:
+                cleaned.append(s)
+        except (ValueError, TypeError):
+            cleaned.append(s)
+
+    baseline["suppressions"] = cleaned
+    baseline["updated_at"] = _utcnow_iso()
+    return {"removed": removed, "removed_count": len(removed), "remaining": len(cleaned)}
+
+
+def import_suppressions(baseline: dict, suppressions: list[dict], owner: str = "import") -> dict:
+    """Bulk import suppressions from triage data or external source.
+
+    Each suppression: {"fingerprint": str, "reason": str, "expires_at": str|None}
+    """
+    imported_count = 0
+    skipped_count = 0
+
+    for sup in suppressions:
+        fp = sup.get("fingerprint", "")
+        if not fp:
+            skipped_count += 1
+            continue
+        reason = sup.get("reason", "Bulk imported")
+        expires_at = sup.get("expires_at")
+
+        existing_fps = {s.get("fingerprint") for s in baseline.get("suppressions", [])}
+        if fp in existing_fps:
+            skipped_count += 1
+            continue
+
+        baseline = add_suppression(baseline, fp, reason, owner, expires_at)
+        imported_count += 1
+
+    return {"imported_count": imported_count, "skipped_count": skipped_count}
+
+
+def get_audit_trail(baseline: dict, limit: int = 50) -> list[dict]:
+    """Get the suppression change history, most recent first."""
+    trail = baseline.get("audit_trail", [])
+    return list(reversed(trail[-limit:]))

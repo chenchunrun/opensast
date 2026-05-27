@@ -73,7 +73,7 @@ Read `.claude/sast/results/llm-analysis-plan.json`. For each `validate_finding` 
 
 ---
 
-### Phase B: Structured Security Discovery (10 discover types)
+### Phase B: Structured Security Discovery (13 discover types)
 
 For each `discover_*` target in the plan, READ the actual code and analyze:
 
