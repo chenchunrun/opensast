@@ -16,17 +16,15 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
+
+from run_semgrep import build_semgrep_env, get_semgrep_binary
 
 CORPUS_DIR = os.path.join(os.path.dirname(__file__), "samples", "corpus")
 RULES_DIR = os.path.join(
     os.path.dirname(__file__), "..",
     ".claude", "skills", "sast-scan", "rules", "semgrep",
 )
-SEMGREP_ENV = {
-    "SEMGREP_SEND_METRICS": "off",
-    "SEMGREP_ENABLE_VERSION_CHECK": "0",
-}
-
 COMMENT_PATTERNS = {
     ".py": ("# ruleid: ", "# ok: "),
     ".ts": ("// ruleid: ", "// ok: "),
@@ -68,15 +66,18 @@ def _parse_annotations(file_path: str) -> dict:
 
 def _run_semgrep_on_file(file_path: str) -> list[dict]:
     """Run Semgrep on a single corpus file and return findings."""
+    semgrep_bin = get_semgrep_binary()
+    if not semgrep_bin:
+        return []
     try:
         result = subprocess.run(
             [
-                "semgrep", "--config", RULES_DIR,
+                semgrep_bin, "--config", RULES_DIR,
                 "--json", "--no-git-ignore",
                 file_path,
             ],
             capture_output=True, text=True, timeout=30,
-            env={**os.environ, **SEMGREP_ENV},
+            env=build_semgrep_env(),
         )
         if result.returncode not in (0, 1, 2):
             return []
@@ -132,11 +133,14 @@ class TestCorpusValidation:
 
     @pytest.fixture(autouse=True)
     def _check_semgrep(self):
+        semgrep_bin = get_semgrep_binary()
+        if not semgrep_bin:
+            pytest.skip("Semgrep not installed")
         try:
             result = subprocess.run(
-                ["semgrep", "--version"],
+                [semgrep_bin, "--version"],
                 capture_output=True, timeout=10,
-                env={**os.environ, **SEMGREP_ENV},
+                env=build_semgrep_env(),
             )
             if result.returncode != 0:
                 pytest.skip("Semgrep installed but unusable in current environment")

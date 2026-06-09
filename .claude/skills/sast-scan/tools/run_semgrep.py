@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,46 @@ DEFAULT_EXCLUDE_DIRS = frozenset({
     ".next", ".nuxt", ".turbo", "coverage", ".cache",
     ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
     ".parcel-cache", ".sass-cache", ".vscode", ".idea",
+    ".opensast-semgrep-home",
 })
 
 SEMGREP_ENV = {
     "SEMGREP_SEND_METRICS": "off",
     "SEMGREP_ENABLE_VERSION_CHECK": "0",
 }
+
+
+def get_semgrep_binary() -> str | None:
+    return shutil.which("pysemgrep") or shutil.which("semgrep")
+
+
+def build_semgrep_env(_base_dir: str | None = None) -> dict[str, str]:
+    """Build a Semgrep-friendly environment with an isolated writable HOME.
+
+    HOME is always placed under the system temp directory. Do not nest it under
+    rule trees or scan targets — Semgrep may treat ``.semgrep/settings.yml``
+    inside those paths as rule configs and fail with exit code 7.
+    """
+    env = {**os.environ, **SEMGREP_ENV}
+
+    home_dir = os.path.join(tempfile.gettempdir(), "opensast-semgrep-home")
+    os.makedirs(home_dir, exist_ok=True)
+    os.makedirs(os.path.join(home_dir, ".semgrep"), exist_ok=True)
+    env["HOME"] = home_dir
+
+    cert_path = None
+    try:
+        import certifi  # type: ignore
+        cert_path = certifi.where()
+    except Exception:
+        if os.path.isfile("/etc/ssl/cert.pem"):
+            cert_path = "/etc/ssl/cert.pem"
+
+    if cert_path:
+        env.setdefault("SSL_CERT_FILE", cert_path)
+        env.setdefault("REQUESTS_CA_BUNDLE", cert_path)
+
+    return env
 
 
 def _collect_scan_targets(
@@ -54,7 +89,8 @@ def run_semgrep(
     max_size_mb: int = 50,
     exclude_dirs: list[str] | None = None,
 ) -> dict:
-    if not shutil.which("semgrep"):
+    semgrep_bin = get_semgrep_binary()
+    if not semgrep_bin:
         return {
             "tool": "semgrep", "version": None, "exit_code": None,
             "sarif_path": None, "json_path": None,
@@ -80,7 +116,7 @@ def run_semgrep(
         }
 
     cmd = [
-        "semgrep",
+        semgrep_bin,
         "--config", "auto",
         "--sarif-output", sarif_path,
         "--json-output", json_path,
@@ -99,7 +135,7 @@ def run_semgrep(
             capture_output=True,
             text=True,
             timeout=timeout + 60,
-            env={**os.environ, **SEMGREP_ENV},
+            env=build_semgrep_env(),
         )
         exit_code = result.returncode
 
@@ -133,13 +169,16 @@ def run_semgrep(
 
 
 def _get_version() -> str:
+    semgrep_bin = get_semgrep_binary()
+    if not semgrep_bin:
+        return "unknown"
     try:
         result = subprocess.run(
-            ["semgrep", "--version"],
+            [semgrep_bin, "--version"],
             capture_output=True,
             text=True,
             timeout=30,
-            env={**os.environ, **SEMGREP_ENV},
+            env=build_semgrep_env(),
         )
         if result.returncode == 0:
             return result.stdout.strip()

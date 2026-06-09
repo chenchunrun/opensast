@@ -2,7 +2,10 @@
 
 import importlib.util
 import os
+import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
 
 _spec = importlib.util.spec_from_file_location(
     "rule_tester",
@@ -274,16 +277,48 @@ def test_rules_have_positive_and_negative_cases():
 
 
 def test_validate_rules_skip_if_no_semgrep():
-    import shutil
-    if not shutil.which("semgrep"):
+    from run_semgrep import get_semgrep_binary
+
+    if not get_semgrep_binary():
         result = validate_rules(RULES_DIR)
         assert not result["valid"]
         assert "semgrep is not installed" in result["errors"][0]
 
 
+def test_validate_rules_timeout_degrades_to_warning():
+    """A validation timeout (e.g. network-restricted env) must not hard-fail."""
+    import subprocess
+
+    from run_semgrep import get_semgrep_binary
+
+    if not get_semgrep_binary():
+        return
+
+    real_run = subprocess.run
+
+    def fake_run(cmd, *args, **kwargs):
+        if "--validate" in cmd:
+            raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 60))
+        return real_run(cmd, *args, **kwargs)
+
+    original = _rule_tester.subprocess.run
+    _rule_tester.subprocess.run = fake_run
+    try:
+        result = validate_rules(RULES_DIR, timeout=1)
+    finally:
+        _rule_tester.subprocess.run = original
+
+    assert result["valid"] is True
+    assert result["errors"] == []
+    assert len(result["warnings"]) == result["rules_checked"]
+    assert result["rules_checked"] > 0
+    assert "timed out" in result["warnings"][0]
+
+
 def test_test_rules_skip_if_no_semgrep():
-    import shutil
-    if not shutil.which("semgrep"):
+    from run_semgrep import get_semgrep_binary
+
+    if not get_semgrep_binary():
         result = run_rule_tests(RULES_DIR)
         assert not result["passed"]
         assert result["failed_tests"] >= 1

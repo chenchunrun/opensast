@@ -31,5 +31,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Semgrep runtime (isolated HOME used by OpenSAST wrappers)
+.semgrep/
+**/.opensast-semgrep-home/
+
 # Internal docs
 need.md

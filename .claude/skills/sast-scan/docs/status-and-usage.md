@@ -5,7 +5,7 @@
 As of 2026-05-27, the repository has the following verified state:
 
 - Rule coverage audit: `235 / 235 = 100%`
-- Full local test suite: `350 passed`
+- Full local test suite: `363 passed`
 - All four SAST skills at 100% maturity
 - Reports, PR comments, gate summaries, and JSON output all expose:
   - finding origin
@@ -211,7 +211,7 @@ On this machine, the default `semgrep` CLI entry path can still be fragile becau
 OpenSAST now works around this by:
 
 - preferring `pysemgrep` when available
-- forcing a writable `HOME`
+- forcing a writable `HOME` under the system temp directory (never inside rule trees)
 - disabling metrics and version checks
 - setting a stable certificate path when possible
 
