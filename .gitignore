@@ -35,5 +35,8 @@ Thumbs.db
 .semgrep/
 **/.opensast-semgrep-home/
 
+# OWASP Benchmark checkout (re-fetch via benchmark/run_owasp_benchmark.py docstring)
+benchmark/.cache/
+
 # Internal docs
 need.md

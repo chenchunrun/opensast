@@ -1,0 +1,261 @@
+# Java taint-mode rules: track untrusted servlet input through variable
+# indirection into dangerous sinks. These complement the syntactic rules in
+# rules.yml, which only match the vulnerable call written inline.
+
+rules:
+  - id: java.security.taint-sql-injection
+    languages: [java]
+    severity: ERROR
+    message: "Untrusted request data flows into a SQL query. Use PreparedStatement parameters instead of string concatenation."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-89"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: &servlet_sources
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers: &servlet_sanitizers
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators: &collection_propagators
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.prepareCall($SQL, ...)
+              - pattern: $C.prepareStatement($SQL, ...)
+              - pattern: $S.executeQuery($SQL)
+              - pattern: $S.executeUpdate($SQL, ...)
+              - pattern: $S.execute($SQL, ...)
+              - pattern: $S.addBatch($SQL)
+              - pattern: $JT.queryForObject($SQL, ...)
+              - pattern: $JT.query($SQL, ...)
+              - pattern: $JT.update($SQL, ...)
+              - pattern: $JT.batchUpdate($SQL, ...)
+          - focus-metavariable: $SQL
+
+  - id: java.security.taint-command-injection
+    languages: [java]
+    severity: ERROR
+    message: "Untrusted request data flows into an OS command. Use a fixed command with validated arguments."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: *servlet_sources
+    pattern-sanitizers: *servlet_sanitizers
+    pattern-propagators: *collection_propagators
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RT.exec($CMD, ...)
+              - pattern: new ProcessBuilder($CMD, ...)
+              - pattern: $PB.command($CMD, ...)
+          - focus-metavariable: $CMD
+
+  - id: java.security.taint-path-traversal
+    languages: [java]
+    severity: ERROR
+    message: "Untrusted request data flows into a file path. Validate the path against an allowlist or canonicalize and check the prefix."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-22"
+      owasp:
+        - "A01:2021-Broken Access Control"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: *servlet_sources
+    pattern-sanitizers: *servlet_sanitizers
+    pattern-propagators: *collection_propagators
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new File($P, ...)
+              - pattern: new File($D, $P)
+              - pattern: new java.io.File($P, ...)
+              - pattern: new java.io.File($D, $P)
+              - pattern: new FileInputStream($P)
+              - pattern: new java.io.FileInputStream($P)
+              - pattern: new FileOutputStream($P, ...)
+              - pattern: new java.io.FileOutputStream($P, ...)
+              - pattern: new FileReader($P)
+              - pattern: new java.io.FileReader($P)
+              - pattern: new FileWriter($P, ...)
+              - pattern: new java.io.FileWriter($P, ...)
+              - pattern: Paths.get($P, ...)
+          - focus-metavariable: $P
+
+  - id: java.security.taint-ldap-injection
+    languages: [java]
+    severity: ERROR
+    message: "Untrusted request data flows into an LDAP search filter. Escape LDAP special characters or use parameterized filters."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-90"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: *servlet_sources
+    pattern-sanitizers: *servlet_sanitizers
+    pattern-propagators: *collection_propagators
+    pattern-sinks:
+      - patterns:
+          - pattern: $CTX.search($BASE, $FILTER, ...)
+          - focus-metavariable: $FILTER
+      - patterns:
+          - pattern: $CTX.search($BASE, $FILTER, ...)
+          - focus-metavariable: $BASE
+
+  - id: java.security.taint-xpath-injection
+    languages: [java]
+    severity: ERROR
+    message: "Untrusted request data flows into an XPath expression. Use parameterized XPath (XPathVariableResolver)."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-643"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: *servlet_sources
+    pattern-sanitizers: *servlet_sanitizers
+    pattern-propagators: *collection_propagators
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $XP.compile($EXPR)
+              - pattern: $XP.evaluate($EXPR, ...)
+          - focus-metavariable: $EXPR
+
+  - id: java.security.taint-xss-servlet
+    languages: [java]
+    severity: ERROR
+    message: "Untrusted request data is written to the HTTP response without encoding. Encode output with an HTML encoder."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-79"
+      owasp:
+        - "A03:2021-Injection"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: *servlet_sources
+    pattern-sanitizers: *servlet_sanitizers
+    pattern-propagators: *collection_propagators
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.getWriter().println($X)
+              - pattern: $RESP.getWriter().print($X)
+              - pattern: $RESP.getWriter().write($X, ...)
+              - pattern: $RESP.getWriter().format(..., $X, ...)
+              - pattern: (PrintWriter $W).println($X)
+              - pattern: (PrintWriter $W).print($X)
+              - pattern: (PrintWriter $W).write($X, ...)
+              - pattern: (PrintWriter $W).format(..., $X, ...)
+              - pattern: (java.io.PrintWriter $W).println($X)
+              - pattern: (java.io.PrintWriter $W).print($X)
+              - pattern: (java.io.PrintWriter $W).write($X, ...)
+              - pattern: (java.io.PrintWriter $W).format(..., $X, ...)
+          - focus-metavariable: $X
+
+  - id: java.security.taint-trust-boundary
+    languages: [java]
+    severity: WARNING
+    message: "Untrusted request data is stored in the HTTP session without validation, crossing a trust boundary."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-501"
+      owasp:
+        - "A04:2021-Insecure Design"
+      confidence: MEDIUM
+      technology: [java]
+    mode: taint
+    pattern-sources: *servlet_sources
+    pattern-sanitizers: *servlet_sanitizers
+    pattern-propagators: *collection_propagators
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpSession $S).setAttribute($K, $V)
+              - pattern: $REQ.getSession().setAttribute($K, $V)
+              - pattern: $REQ.getSession(...).setAttribute($K, $V)
+          - focus-metavariable: $V
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpSession $S).setAttribute($K, $V)
+              - pattern: $REQ.getSession().setAttribute($K, $V)
+              - pattern: $REQ.getSession(...).setAttribute($K, $V)
+          - focus-metavariable: $K
+
+  - id: java.security.weak-cipher-algorithm
+    languages: [java]
+    severity: ERROR
+    message: "Weak or ECB-mode cipher algorithm. Use AES/GCM/NoPadding or another authenticated mode."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-327"
+      owasp:
+        - "A02:2021-Cryptographic Failures"
+      confidence: HIGH
+      technology: [java]
+    patterns:
+      - pattern-either:
+          - pattern: javax.crypto.Cipher.getInstance($ALG, ...)
+          - pattern: Cipher.getInstance($ALG, ...)
+      - metavariable-regex:
+          metavariable: $ALG
+          regex: '"(DES|DESede|RC2|RC4|Blowfish)(/.*)?"|".*/ECB/.*"'
+
+  - id: java.security.insecure-cookie
+    languages: [java]
+    severity: WARNING
+    message: "Cookie added to the response without the Secure flag. Call setSecure(true) before addCookie."
+    metadata:
+      category: security
+      cwe:
+        - "CWE-614"
+      owasp:
+        - "A05:2021-Security Misconfiguration"
+      confidence: MEDIUM
+      technology: [java]
+    patterns:
+      - pattern: $RESP.addCookie($C);
+      - pattern-not-inside: |
+          $C.setSecure(true);
+          ...

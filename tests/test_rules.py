@@ -113,7 +113,10 @@ def test_all_rules_files_valid_yaml():
             assert "id" in rule
             assert "languages" in rule
             assert "severity" in rule
-            assert "patterns" in rule or "pattern" in rule or "pattern-either" in rule
+            if rule.get("mode") == "taint":
+                assert "pattern-sources" in rule and "pattern-sinks" in rule
+            else:
+                assert "patterns" in rule or "pattern" in rule or "pattern-either" in rule
             assert rule.get("metadata", {}).get("cwe")
             assert rule.get("metadata", {}).get("owasp")
 

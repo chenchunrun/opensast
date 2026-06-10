@@ -143,8 +143,12 @@ rules:
       confidence: MEDIUM
       technology: [java]
     patterns:
-      - pattern: new Random()
-      - pattern-not: new SecureRandom()
+      - pattern-either:
+          - pattern: new Random(...)
+          - pattern: new java.util.Random(...)
+          - pattern: Math.random()
+      - pattern-not: new SecureRandom(...)
+      - pattern-not: new java.security.SecureRandom(...)
 
   - id: java.security.spring-csrf-disabled
     languages: [java]
@@ -228,8 +232,10 @@ rules:
       technology: [java]
     patterns:
       - pattern-either:
-          - pattern: MessageDigest.getInstance("MD5")
-          - pattern: MessageDigest.getInstance("md5")
+          - pattern: MessageDigest.getInstance("MD5", ...)
+          - pattern: MessageDigest.getInstance("md5", ...)
+          - pattern: java.security.MessageDigest.getInstance("MD5", ...)
+          - pattern: java.security.MessageDigest.getInstance("md5", ...)
 
   - id: java.security.weak-hash-sha1
     languages: [java]
@@ -245,9 +251,14 @@ rules:
       technology: [java]
     patterns:
       - pattern-either:
-          - pattern: MessageDigest.getInstance("SHA-1")
-          - pattern: MessageDigest.getInstance("SHA1")
-          - pattern: MessageDigest.getInstance("sha1")
+          - pattern: MessageDigest.getInstance("SHA-1", ...)
+          - pattern: MessageDigest.getInstance("SHA1", ...)
+          - pattern: MessageDigest.getInstance("sha1", ...)
+          - pattern: java.security.MessageDigest.getInstance("SHA-1", ...)
+          - pattern: java.security.MessageDigest.getInstance("SHA1", ...)
+          - pattern: java.security.MessageDigest.getInstance("sha1", ...)
+          - pattern: DigestUtils.sha1(...)
+          - pattern: DigestUtils.sha1Hex(...)
 
   - id: java.security.insecure-ssl-trustall
     languages: [java]
