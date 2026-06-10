@@ -2,10 +2,11 @@
 
 ## Current Status
 
-As of 2026-05-27, the repository has the following verified state:
+As of 2026-06-10, the repository has the following verified state:
 
-- Rule coverage audit: `235 / 235 = 100%`
-- Full local test suite: `363 passed`
+- Rule coverage audit: `243+ / 243+ = 100%` (includes Java taint + C# rules)
+- Full local test suite: `370 passed`
+- OWASP Benchmark v1.2 (Java rules): **+39.6%** score (TPR 61.8%, FPR 22.3%)
 - All four SAST skills at 100% maturity
 - Reports, PR comments, gate summaries, and JSON output all expose:
   - finding origin
@@ -198,6 +199,23 @@ gate:
 
 - Confirmed blocking findings fail CI
 - `needs-review` findings also fail CI
+
+## Supplemental Native Tools (auto-run when installed)
+
+| Language | Tool | Runner | Notes |
+|----------|------|--------|-------|
+| Python | Bandit | `run_bandit.py` | Wired |
+| Go | gosec | `run_gosec.py` | Wired |
+| JS/TS | ESLint | `run_eslint_security.py` | Requires `package.json` |
+| Ruby | Brakeman | `run_brakeman.py` | Wired |
+| C/C++ | cppcheck | `run_cppcheck.py` | Wired |
+| Rust | cargo-audit | `run_cargo_audit.py` | Requires `Cargo.toml` |
+| Swift | SwiftLint | `run_swiftlint.py` | Wired |
+| PHP | PHPStan | `run_phpstan.py` | Requires `vendor/bin/phpstan` |
+| Java | SpotBugs | — | Use CodeQL `deep` profile instead |
+| C# | Roslyn analyzers | — | Use CodeQL `deep` profile instead |
+
+All supplemental tools skip gracefully when not installed (skill-friendly: no hard dependency).
 
 ## Known Limits
 

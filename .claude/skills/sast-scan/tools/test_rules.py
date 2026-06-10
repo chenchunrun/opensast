@@ -194,6 +194,30 @@ def write_rule_coverage_report(coverage: dict, output_path: str) -> None:
         fh.write(content)
 
 
+def _stage_semgrep_test(rule_path: str, test_files: list[str], staged_dir: str) -> None:
+    """Stage rule config and merged test fixtures for ``semgrep --test``.
+
+    Semgrep pairs ``<config-stem>.yml`` with ``<config-stem>.<lang-ext>`` in the
+    same directory. Multiple fixture files for one config are merged per extension.
+    """
+    shutil.copy2(rule_path, os.path.join(staged_dir, os.path.basename(rule_path)))
+    rule_stem = Path(rule_path).stem
+    by_ext: dict[str, list[str]] = {}
+    for path in test_files:
+        by_ext.setdefault(Path(path).suffix, []).append(path)
+    for ext, paths in by_ext.items():
+        merged_path = os.path.join(staged_dir, f"{rule_stem}{ext}")
+        with open(merged_path, "w", encoding="utf-8") as out:
+            for i, path in enumerate(paths):
+                with open(path, encoding="utf-8") as inp:
+                    content = inp.read()
+                if i:
+                    out.write("\n")
+                out.write(content)
+                if content and not content.endswith("\n"):
+                    out.write("\n")
+
+
 def validate_rules(rules_dir: str = RULES_DIR, timeout: int = 60) -> dict:
     entries = discover_rule_tests(rules_dir)
     if not entries:
@@ -271,9 +295,8 @@ def test_rules(rules_dir: str = RULES_DIR, verbose: bool = False) -> dict:
 
         try:
             with tempfile.TemporaryDirectory(prefix="opensast-rule-tests-") as staged_dir:
-                for path in test_files:
-                    shutil.copy2(path, os.path.join(staged_dir, os.path.basename(path)))
-                cmd = [semgrep_bin, "--test", "--config", rule_path, staged_dir]
+                _stage_semgrep_test(rule_path, test_files, staged_dir)
+                cmd = [semgrep_bin, "--test", staged_dir]
                 if verbose:
                     cmd.append("--verbose")
                 proc = subprocess.run(

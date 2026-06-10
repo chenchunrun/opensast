@@ -124,7 +124,7 @@ def test_all_rules_files_valid_yaml():
 def test_rule_coverage_audit_includes_expected_languages():
     coverage = audit_rule_coverage(RULES_DIR)
     languages = {row["language"] for row in coverage["languages"]}
-    assert {"javascript", "python", "go", "java", "php", "ruby", "cpp", "rust"} <= languages
+    assert {"javascript", "python", "go", "java", "php", "ruby", "cpp", "rust", "csharp"} <= languages
     summary = coverage["summary"]
     assert summary["total_rules"] >= 200
     assert summary["covered_rules"] >= 200
@@ -277,6 +277,24 @@ def test_rules_have_positive_and_negative_cases():
             has_ok = "ok:" in content.lower()
             assert has_ruleid, f"{path}: no positive test cases (ruleid:)"
             assert has_ok, f"{path}: no negative test cases (ok:)"
+
+
+def test_stage_semgrep_test_merges_fixtures_by_extension():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as staged_dir:
+        rule_path = os.path.join(RULES_DIR, "java", "rules.yml")
+        test_files = [
+            os.path.join(RULES_DIR, "java", "tests", "TestSqlInjection.java"),
+            os.path.join(RULES_DIR, "java", "tests", "TestMiscSecurity.java"),
+        ]
+        _rule_tester._stage_semgrep_test(rule_path, test_files, staged_dir)
+        merged = os.path.join(staged_dir, "rules.java")
+        assert os.path.isfile(os.path.join(staged_dir, "rules.yml"))
+        assert os.path.isfile(merged)
+        content = Path(merged).read_text(encoding="utf-8")
+        assert "ruleid:" in content.lower()
+        assert "TestSqlInjection" in content or "sql-injection" in content
 
 
 def test_validate_rules_skip_if_no_semgrep():

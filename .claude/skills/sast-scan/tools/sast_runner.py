@@ -20,6 +20,7 @@ from detect_project import detect_project
 from github_integration import post_pr_comment
 from history import compare_scans, get_previous_scan, load_scan_history, save_scan_result
 from normalize_findings import (
+    JSON_NORMALIZERS,
     NORMALIZERS,
     deduplicate_findings,
     normalize_llm_findings,
@@ -35,11 +36,17 @@ from report_writer import (
     summarize_analysis_enrichment,
 )
 from run_bandit import run_bandit
+from run_brakeman import run_brakeman
+from run_cargo_audit import run_cargo_audit
 from run_checkov import run_checkov
 from run_codeql import run_codeql
+from run_cppcheck import run_cppcheck
+from run_eslint_security import run_eslint_security
 from run_gitleaks import run_gitleaks
 from run_gosec import run_gosec
+from run_phpstan import run_phpstan
 from run_semgrep import run_semgrep
+from run_swiftlint import run_swiftlint
 from sarif_merge import merge_sarif_files, normalize_paths_in_sarif
 from llm_orchestrator import apply_fast_filters, generate_analysis_plan, save_analysis_plan
 
@@ -371,22 +378,76 @@ def run(args: argparse.Namespace) -> int:
             tool_errors.append({"tool": "gosec", "error": result.get("error_message", "unknown")})
             logger.warning("gosec: %s", result.get("error_message", "failed"))
 
+    if detected_languages & {"javascript", "typescript"}:
+        logger.info("Running ESLint...")
+        result = run_eslint_security(scan_target, output_dir, timeout=tool_timeout)
+        scan_results.append(result)
+        if not result["success"]:
+            logger.warning("ESLint: %s", result.get("error_message", "skipped or failed"))
+
+    if "ruby" in detected_languages:
+        logger.info("Running Brakeman...")
+        result = run_brakeman(scan_target, output_dir, timeout=tool_timeout)
+        scan_results.append(result)
+        if not result["success"]:
+            logger.warning("Brakeman: %s", result.get("error_message", "skipped or failed"))
+
+    if detected_languages & {"c", "cpp"}:
+        logger.info("Running cppcheck...")
+        result = run_cppcheck(scan_target, output_dir, timeout=tool_timeout)
+        scan_results.append(result)
+        if not result["success"]:
+            logger.warning("cppcheck: %s", result.get("error_message", "skipped or failed"))
+
+    if "rust" in detected_languages:
+        logger.info("Running cargo-audit...")
+        result = run_cargo_audit(scan_target, output_dir, timeout=tool_timeout)
+        scan_results.append(result)
+        if not result["success"]:
+            logger.warning("cargo-audit: %s", result.get("error_message", "skipped or failed"))
+
+    if "swift" in detected_languages:
+        logger.info("Running SwiftLint...")
+        result = run_swiftlint(scan_target, output_dir, timeout=tool_timeout)
+        scan_results.append(result)
+        if not result["success"]:
+            logger.warning("SwiftLint: %s", result.get("error_message", "skipped or failed"))
+
+    if "php" in detected_languages:
+        logger.info("Running PHPStan...")
+        result = run_phpstan(scan_target, output_dir, timeout=tool_timeout)
+        scan_results.append(result)
+        if not result["success"]:
+            logger.warning("PHPStan: %s", result.get("error_message", "skipped or failed"))
+
     logger.info("Collecting and normalizing findings...")
     all_findings: list[dict] = []
 
     for r in scan_results:
+        tool = r.get("tool", "")
         sarif_path = r.get("sarif_path")
-        if not sarif_path or not os.path.isfile(sarif_path):
-            continue
-        try:
-            with open(sarif_path, encoding="utf-8") as fh:
-                sarif_data = json.load(fh)
-        except (json.JSONDecodeError, OSError):
+        json_path = r.get("json_path")
+
+        if sarif_path and os.path.isfile(sarif_path):
+            try:
+                with open(sarif_path, encoding="utf-8") as fh:
+                    sarif_data = json.load(fh)
+            except (json.JSONDecodeError, OSError):
+                continue
+            normalizer = NORMALIZERS.get(tool, normalize_semgrep)
+            all_findings.extend(normalizer(sarif_data))
             continue
 
-        tool = r.get("tool", "")
-        normalizer = NORMALIZERS.get(tool, normalize_semgrep)
-        all_findings.extend(normalizer(sarif_data))
+        if json_path and os.path.isfile(json_path):
+            json_normalizer = JSON_NORMALIZERS.get(tool)
+            if not json_normalizer:
+                continue
+            try:
+                with open(json_path, encoding="utf-8") as fh:
+                    json_data = json.load(fh)
+            except (json.JSONDecodeError, OSError):
+                continue
+            all_findings.extend(json_normalizer(json_data))
 
     llm_findings_path = args.llm_findings or config.get("llm_findings", {}).get("import_file")
     if llm_findings_path:

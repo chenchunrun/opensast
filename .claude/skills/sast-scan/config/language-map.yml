@@ -158,6 +158,8 @@ languages:
         dependencies: ["laravel/framework"]
     tools:
       - semgrep
+    native_tools:
+      - phpstan
 
   rust:
     extensions:
@@ -167,6 +169,8 @@ languages:
       - Cargo.lock
     tools:
       - semgrep
+    native_tools:
+      - cargo-audit
 
   swift:
     extensions:
@@ -175,6 +179,8 @@ languages:
       - Package.swift
     tools:
       - semgrep
+    native_tools:
+      - swiftlint
 
   terraform:
     extensions:

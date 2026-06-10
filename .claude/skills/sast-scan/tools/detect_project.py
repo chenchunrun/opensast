@@ -41,12 +41,19 @@ FRAMEWORK_PATTERNS = {
 }
 
 LANGUAGE_TOOLS = {
-    "python": ["semgrep", "bandit"], "javascript": ["semgrep", "eslint"],
-    "typescript": ["semgrep", "eslint"], "java": ["semgrep"],
-    "kotlin": ["semgrep"], "go": ["semgrep", "gosec"],
-    "rust": ["semgrep"], "ruby": ["semgrep", "brakeman"],
-    "php": ["semgrep"], "csharp": ["semgrep"],
-    "c": ["semgrep"], "cpp": ["semgrep"],
+    "python": ["semgrep", "bandit"],
+    "javascript": ["semgrep", "eslint"],
+    "typescript": ["semgrep", "eslint"],
+    "java": ["semgrep"],
+    "kotlin": ["semgrep"],
+    "go": ["semgrep", "gosec"],
+    "rust": ["semgrep", "cargo-audit"],
+    "ruby": ["semgrep", "brakeman"],
+    "php": ["semgrep", "phpstan"],
+    "csharp": ["semgrep"],
+    "c": ["semgrep", "cppcheck"],
+    "cpp": ["semgrep", "cppcheck"],
+    "swift": ["semgrep", "swiftlint"],
 }
 
 MONOREPO_MANIFESTS = {

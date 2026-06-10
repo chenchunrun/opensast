@@ -436,6 +436,72 @@ def normalize_llm_findings(data: dict | list[dict]) -> list[dict]:
     return findings
 
 
+def normalize_eslint_json(data: list | dict) -> list[dict]:
+    findings: list[dict] = []
+    files = data if isinstance(data, list) else data.get("results", [])
+    for entry in files:
+        file_path = entry.get("filePath", "")
+        for msg in entry.get("messages", []):
+            rule_id = msg.get("ruleId", "eslint")
+            severity = "high" if msg.get("severity") == 2 else "medium"
+            findings.append(_build(
+                tool="eslint", rule_id=rule_id, title=rule_id,
+                severity=severity, file_path=file_path,
+                start_line=msg.get("line", 0), end_line=msg.get("endLine", msg.get("line", 0)),
+                message=msg.get("message", rule_id),
+                confidence="medium",
+            ))
+    return findings
+
+
+def normalize_brakeman_json(data: dict) -> list[dict]:
+    findings: list[dict] = []
+    for warn in data.get("warnings", []):
+        sev = {"High": "high", "Medium": "medium", "Weak": "low"}.get(warn.get("confidence", ""), "medium")
+        findings.append(_build(
+            tool="brakeman", rule_id=warn.get("warning_type", "brakeman"),
+            title=warn.get("warning_type", "brakeman"),
+            severity=sev, file_path=warn.get("file", ""),
+            start_line=warn.get("line", 0), end_line=warn.get("line", 0),
+            message=warn.get("message", warn.get("warning_type", "")),
+            cwe=[f"CWE-{warn['cwe_id']}"] if warn.get("cwe_id") else [],
+            confidence="medium",
+        ))
+    return findings
+
+
+def normalize_cargo_audit_json(data: dict) -> list[dict]:
+    findings: list[dict] = []
+    for vuln in data.get("vulnerabilities", {}).get("list", []):
+        advisory = vuln.get("advisory", {})
+        findings.append(_build(
+            tool="cargo-audit", rule_id=advisory.get("id", "cargo-audit"),
+            title=advisory.get("title", advisory.get("id", "cargo-audit")),
+            severity="high", file_path=vuln.get("package", {}).get("name", "Cargo.toml"),
+            start_line=0, end_line=0,
+            message=advisory.get("description", advisory.get("title", "")),
+            cwe=[f"CWE-{c}" for c in advisory.get("categories", []) if str(c).isdigit()],
+            confidence="high",
+        ))
+    return findings
+
+
+def normalize_swiftlint_json(data: list) -> list[dict]:
+    findings: list[dict] = []
+    sev_map = {"error": "high", "warning": "medium", "weak": "low"}
+    for item in data:
+        rule_id = item.get("rule_id", item.get("rule_identifier", "swiftlint"))
+        findings.append(_build(
+            tool="swiftlint", rule_id=rule_id, title=rule_id,
+            severity=sev_map.get(item.get("severity", "warning"), "medium"),
+            file_path=item.get("file", ""),
+            start_line=item.get("line", 0), end_line=item.get("line", 0),
+            message=item.get("reason", rule_id),
+            confidence="medium",
+        ))
+    return findings
+
+
 NORMALIZERS: dict[str, callable] = {
     "semgrep": normalize_semgrep,
     "gitleaks": normalize_gitleaks,
@@ -443,7 +509,15 @@ NORMALIZERS: dict[str, callable] = {
     "bandit": normalize_bandit,
     "gosec": normalize_gosec,
     "codeql": normalize_codeql,
+    "cppcheck": normalize_semgrep,
     "llm-analyzer": normalize_llm_findings,
+}
+
+JSON_NORMALIZERS: dict[str, callable] = {
+    "eslint": normalize_eslint_json,
+    "brakeman": normalize_brakeman_json,
+    "cargo-audit": normalize_cargo_audit_json,
+    "swiftlint": normalize_swiftlint_json,
 }
 
 
