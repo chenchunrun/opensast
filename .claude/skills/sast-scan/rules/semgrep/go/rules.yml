@@ -47,8 +47,6 @@ rules:
     patterns:
       - pattern-either:
           - pattern: |
-              exec.Command($VAR, ...)
-          - pattern: |
               exec.Command("sh", "-c", $VAR)
           - pattern: |
               exec.Command("/bin/sh", "-c", $VAR)
@@ -56,8 +54,22 @@ rules:
               exec.Command("bash", "-c", $VAR)
           - pattern: |
               exec.CommandContext($CTX, "sh", "-c", $VAR)
-      - pattern-not: |
-          exec.Command("...", "...")
+          - patterns:
+              - pattern: |
+                  exec.Command($CMD, ...)
+              - metavariable-pattern:
+                  metavariable: $CMD
+                  patterns:
+                    - pattern-not: |
+                        "..."
+          - patterns:
+              - pattern: |
+                  exec.CommandContext($CTX, $CMD, ...)
+              - metavariable-pattern:
+                  metavariable: $CMD
+                  patterns:
+                    - pattern-not: |
+                        "..."
 
   - id: go.security.ssrf-http-get
     languages: [go]
@@ -72,12 +84,8 @@ rules:
       confidence: MEDIUM
       technology: [go]
     patterns:
-      - pattern-either:
-          - pattern: http.Get($URL)
-          - pattern: $CLIENT.Get($URL)
-          - pattern: $CLIENT.Post($URL, ...)
+      - pattern: http.Get($URL)
       - pattern-not: http.Get("...")
-      - pattern-not: $CLIENT.Get("...")
 
   - id: go.security.path-traversal
     languages: [go]
@@ -116,9 +124,12 @@ rules:
           - pattern: rand.Intn(...)
           - pattern: rand.Read(...)
           - pattern: rand.Int(...)
-      - pattern-not-inside: |
-          import "crypto/rand"
-          ...
+          - pattern: mathrand.Intn(...)
+          - pattern: mathrand.Read(...)
+          - pattern: mathrand.Int(...)
+      - pattern-not: cryptorand.Read(...)
+      - pattern-not: cryptorand.Int(...)
+      - pattern-not: cryptorand.Intn(...)
 
   - id: go.security.template-injection
     languages: [go]
@@ -160,6 +171,8 @@ rules:
               log.Println($USER_INPUT)
       - pattern-not: |
           log.Printf("...", ...)
+      - pattern-not: |
+          log.Println("...")
 
   - id: go.security.header-injection
     languages: [go]
@@ -197,6 +210,8 @@ rules:
               $REQ.FormFile(...)
           - pattern: |
               $REQ.MultipartForm.File[...]
+      - pattern-not-inside: |
+          if info.Size > ... { ... }
       - pattern-not-inside: |
           if $INFO.Size > ... { ... }
 
@@ -441,7 +456,9 @@ rules:
           - pattern: |
               $DB.Raw(fmt.Sprintf(...))
           - pattern: |
-              $DB.Exec(fmt.Sprintf(...))
+              $DB.Where(fmt.Sprintf(...)).First(...)
+          - pattern: |
+              $DB.Where(fmt.Sprintf(...)).Delete(...)
 
   - id: go.security.ssrf-http-client
     languages: [go]
@@ -465,6 +482,8 @@ rules:
               $CLIENT.Do(&$REQ)
       - pattern-not: |
           $CLIENT.Get("...")
+      - pattern-not: |
+          http.Get(...)
       - pattern-not-inside: |
           if strings.HasPrefix($URL, "...") { ... }
 
@@ -487,5 +506,11 @@ rules:
           }(...)
       - pattern-not-inside: |
           go func(..., $CTX context.Context, ...) {
+              ...
+          }(...)
+      - pattern-not-inside: |
+          go func(...) {
+              ...
+              $MAP[$KEY] = ...
               ...
           }(...)

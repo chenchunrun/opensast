@@ -32,7 +32,7 @@ var (
 
 func miscVulnerable(client *http.Client, req *http.Request, db any, url string, base string, userInput string, data []byte) {
 	// ruleid: go.security.defer-close
-	resp, err := http.Get(url)
+	resp, err := http.Get("https://api.example.com")
 	_ = resp
 	_ = err
 
@@ -86,9 +86,8 @@ func miscVulnerable(client *http.Client, req *http.Request, db any, url string, 
 
 	// ok: go.security.multipart-upload
 	if info.Size > 1024 {
-		return
+		_, _ = req.FormFile("upload")
 	}
-	req.FormFile("upload")
 
 	// ruleid: go.security.weak-hash-md5
 	md5.Sum(data)
@@ -102,8 +101,8 @@ func miscVulnerable(client *http.Client, req *http.Request, db any, url string, 
 	// ruleid: go.security.deserialization-gob
 	gob.NewDecoder(bytes.NewReader(data)).Decode(&User{})
 
-	// ruleid: go.security.race-condition-map
 	go func() {
+		// ruleid: go.security.race-condition-map
 		cache[userInput] = "value"
 	}()
 

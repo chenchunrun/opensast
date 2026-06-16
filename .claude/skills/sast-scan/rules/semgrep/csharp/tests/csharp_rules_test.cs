@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
+using System.Xml;
 using System.Runtime.Serialization.Formatters.Binary;
 
 class CsharpRulesTest
@@ -77,5 +78,51 @@ class CsharpRulesTest
 
         // ok: csharp.security.xss-response-write
         response.Write("safe static output");
+    }
+
+    void LdapInjection(string user, System.DirectoryServices.DirectorySearcher searcher)
+    {
+        // ruleid: csharp.security.ldap-injection
+        searcher.Filter = "(uid=" + user + ")";
+
+        // ok: csharp.security.ldap-injection
+        searcher.Filter = "(uid=admin)";
+    }
+
+    void XpathInjection(string name, System.Xml.XPath.XPathExpression expr)
+    {
+        // ruleid: csharp.security.xpath-injection
+        System.Xml.XPath.XPathExpression.Compile("//user[name='" + name + "']");
+
+        // ok: csharp.security.xpath-injection
+        System.Xml.XPath.XPathExpression.Compile("//user[name='admin']");
+    }
+
+    void InsecureRandom()
+    {
+        // ruleid: csharp.security.insecure-random
+        new Random();
+
+        // ok: csharp.security.insecure-random
+        RandomNumberGenerator.Create();
+    }
+
+    void OpenRedirect(string url, HttpResponse response)
+    {
+        // ruleid: csharp.security.open-redirect
+        response.Redirect(url);
+
+        // ok: csharp.security.open-redirect
+        response.Redirect("/home");
+    }
+
+    void XmlExternalEntity(string path)
+    {
+        // ruleid: csharp.security.xml-external-entity
+        new System.Xml.XmlDocument();
+
+        // ok: csharp.security.xml-external-entity
+        var settings = new System.Xml.XmlReaderSettings();
+        System.Xml.XmlReader.Create(path, settings);
     }
 }

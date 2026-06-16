@@ -29,6 +29,11 @@ rules:
               $CONN.createStatement().executeQuery("..." + $VAR + "...")
           - pattern: |
               $CONN.createStatement().execute("..." + $VAR + "...")
+          - pattern: |
+              $STMT.executeUpdate("..." + $VAR + "..." + $VAR2)
+          - pattern: |
+              $STMT.executeUpdate("..." + $VAR + "...")
+          - pattern-regex: \.execute(?:Query|Update|)\([^)]*\+[^)]*\+
       - pattern-not: |
           $STMT.executeQuery("...")
 
@@ -280,6 +285,9 @@ rules:
               public void checkServerTrusted(...) { }
           - pattern: |
               public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+          - pattern: |
+              public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
+          - pattern-regex: getAcceptedIssuers\(\)\s*\{\s*return\s+new\s+.*X509Certificate\[0\]
 
   - id: java.security.deserialization-objectinput
     languages: [java]
@@ -355,6 +363,7 @@ rules:
               $CTX.search("..." + $VAR + "...", ...)
           - pattern: |
               $CTX.search($BASE, "..." + $VAR + "...", ...)
+          - pattern-regex: \.search\([^,]+,\s*"[^"]*"\s*\+\s*\w+
       - pattern-not: |
           $CTX.search("...", ...)
 
@@ -437,8 +446,17 @@ rules:
       technology: [java]
     patterns:
       - pattern-inside: |
-          class $SERVLET extends HttpServlet { ... }
-      - pattern: $VAR = ...
+          class $SERVLET extends HttpServlet {
+            ...
+            $RET $METHOD(...) {
+              ...
+            }
+            ...
+          }
+      - pattern: |
+          $FIELD = $VALUE;
+      - pattern-not: |
+          $TYPE $FIELD = $VALUE;
 
   - id: java.security.tempfile-insecure
     languages: [java]

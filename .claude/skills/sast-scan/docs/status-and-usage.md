@@ -1,12 +1,36 @@
 # OpenSAST Status And Usage
 
+## Product positioning
+
+OpenSAST is a **Claude Code native multi-layer SAST Skill platform**. CI runs Layer 1 (rules) for gating; Layer 2/3 (LLM + Agent) run inside Skill sessions, not as unattended CI jobs.
+
+### When to use / when not to
+
+| Scenario | Use | Notes |
+|----------|-----|-------|
+| Security review in Claude Code | ✅ Skills | `scan → triage → baseline → fix` |
+| PR rule gate + SARIF | ✅ CI `standard` | `--fail-on`, no auto LLM |
+| Trusted repo audit | ✅ `deep` + Skill | CodeQL may build |
+| Unattended CI LLM analysis | ❌ | Out of scope |
+| `deep` on untrusted repos | ❌ | Use `quick` / `standard` |
+| Standalone SaaS console | ❌ | Out of scope |
+
 ## Current Status
 
-As of 2026-06-10, the repository has the following verified state:
+As of 2026-06-16, the repository has the following verified state (auto-synced from `metrics_summary.py`):
 
-- Rule coverage audit: `243+ / 243+ = 100%` (includes Java taint + C# rules)
-- Full local test suite: `370 passed`
+<!-- metrics:auto:start -->
+- Rule coverage audit: `269 / 269 = 100.0%`
+- Full local test suite: `397 passed` (pytest collected count)
+- Metrics snapshot: `python3 .claude/skills/sast-scan/tools/metrics_summary.py`
 - OWASP Benchmark v1.2 (Java rules): **+39.6%** score (TPR 61.8%, FPR 22.3%)
+<!-- metrics:auto:end -->
+
+Regenerate this block:
+
+```bash
+python3 .claude/skills/sast-scan/tools/metrics_summary.py --sync-status-doc
+```
 - All four SAST skills at 100% maturity
 - Reports, PR comments, gate summaries, and JSON output all expose:
   - finding origin
@@ -63,6 +87,23 @@ The following chains are now covered end to end:
 - `/sast-baseline`
   - 10 commands: create, update, show, suppress, unsuppress, diff, stats, audit, cleanup, import.
   - Audit trail records all suppression changes with timestamp, action, and owner.
+
+## Results artifacts (`.claude/sast/results/`)
+
+| File | Produced by | Key fields / purpose |
+|------|-------------|----------------------|
+| `summary.json` | `sast_runner.py` | `profile`, `tools_executed`, `tool_outcomes`, `next_steps`, `severity_counts`, `gate_result`, `llm_analysis_targets` |
+| `findings.json` | `sast_runner.py` | Normalized findings + `analysis_enrichment` |
+| `llm-analysis-plan.json` | `sast_runner.py` (`standard`/`deep`) | `session_id`, `completed_phases`, `analysis_targets`, `discover_targets` |
+| `llm-findings.json` | Skill session (manual save) | Phase A–C output; import via `--llm-findings` |
+| `report.md` | `sast_runner.py` | Human-readable report |
+| `merged.sarif` | `sast_runner.py` | GitHub Code Scanning upload |
+
+Session handoff:
+
+```bash
+python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results
+```
 
 ## Recommended Usage
 

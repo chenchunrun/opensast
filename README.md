@@ -1,6 +1,19 @@
 # OpenSAST
 
-基于 Claude Code Skills 的多语言静态应用安全测试（SAST）工具。编排 Semgrep、Gitleaks、Checkov 等成熟扫描器，结合 LLM 增强分析，提供统一的安全扫描结果、SARIF 报告和修复建议。
+**Claude Code 原生的多层 SAST Skill 平台** — 在 IDE 会话内编排「规则信号 → LLM 结构化分析 → Agent 自由推理」，并提供分类、基线、修复的完整安全工作流。
+
+编排 Semgrep、Gitleaks、Checkov 等成熟扫描器作为 Layer 1 信号源；检测深度与降噪依赖 `/sast-scan` 等 Skill 会话中的 Layer 2/3，而非无人值守的 CI 魔法。
+
+### 适用 / 不适用
+
+| 场景 | 推荐 | 说明 |
+|------|------|------|
+| 开发者在 Claude Code 中做安全评审 | ✅ Skill 会话 | `quick → triage → fix` 端到端 |
+| PR 规则门禁 + SARIF 归档 | ✅ CI `standard` | 仅 Layer 1；`--fail-on` 阻断 |
+| 受信仓库深度审计 | ✅ `deep` + Skill 分析 | CodeQL 需构建上下文 |
+| 无人值守 CI 内全自动 LLM 扫描 | ❌ | 违背定位；Layer 2/3 在 Skill 内执行 |
+| 不可信仓库执行 `deep` 构建 | ❌ | 仅 `quick` / `standard` |
+| 独立 SaaS 控制台 / Web UI | ❌ | 超出 Skill 平台范围 |
 
 ## 功能特性
 
@@ -10,9 +23,9 @@
 |--------|------|----------|----------|----------|
 | P0 | JavaScript / TypeScript | Semgrep | CodeQL | ESLint security |
 | P0 | Python | Semgrep | CodeQL | Bandit |
-| P0 | Java / Kotlin | Semgrep | CodeQL | SpotBugs |
+| P0 | Java / Kotlin | Semgrep | CodeQL | — (`deep` 用 CodeQL) |
 | P0 | Go | Semgrep | CodeQL | gosec |
-| P0 | C# | Semgrep | CodeQL | Roslyn analyzers |
+| P0 | C# | Semgrep | CodeQL | — (`deep` 用 CodeQL) |
 | P1 | C/C++ | Semgrep | CodeQL | cppcheck |
 | P1 | PHP | Semgrep | - | PHPStan |
 | P1 | Ruby | Semgrep | CodeQL | Brakeman |
@@ -137,6 +150,25 @@ Options:
 - 仓库内的 `./mvnw`、`./gradlew`、`make`、`cmake` 等构建入口应视为高信任操作；仅在你信任目标仓库时，才应通过配置显式放开。
 - 对不可信仓库，推荐先使用 `quick` 或 `standard`，再根据需要单独开启更深的分析。
 
+## 快速上手
+
+15 分钟指南：[`docs/quickstart.md`](docs/quickstart.md)
+
+```bash
+# 1. 检查环境
+bash scripts/configure-sast-tools.sh
+
+# 2. 扫描示例漏洞代码
+/sast-scan examples/ --profile quick --format markdown
+
+# 3. 查看结果
+ls .claude/sast/results/
+```
+
+工具链检测：`bash scripts/configure-sast-tools.sh`
+
+最小漏洞样例：[`examples/`](examples/)
+
 ## 安装
 
 ### 前置条件
@@ -189,21 +221,32 @@ opensast/
 │   │   ├── rules/          # Semgrep 自定义规则（按语言分目录）
 │   │   ├── templates/      # 报告模板
 │   │   ├── docs/           # CI 集成和规则编写文档
-│   │   └── examples/       # 漏洞示例代码
 │   ├── sast-triage/        # 分类 Skill
 │   ├── sast-fix/           # 修复 Skill
 │   └── sast-baseline/      # 基线管理 Skill
+├── examples/               # 漏洞示例代码
 ├── tests/                  # 测试和漏洞样本
 ├── Dockerfile.sast         # Docker 运行环境
 ├── requirements.txt        # Python 依赖
 └── LICENSE                 # Apache 2.0
 ```
 
+## 会话状态
+
+扫描后可用一条命令查看进度与下一步：
+
+```bash
+python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results
+```
+
 ## CI/CD 集成
 
-当前真实完成度、推荐使用路径和已知限制见：
+**CI 负责规则层门禁**（`standard` profile、`--fail-on`、SARIF 上传）。**LLM / Agent 层不在 CI 内自动执行** — 在 Claude Code Skill 会话中完成。
+
+`deep` profile 仅用于受信仓库（启用 CodeQL，可能触发构建）。详见：
 
 - `.claude/skills/sast-scan/docs/status-and-usage.md`
+- `.claude/skills/sast-scan/docs/ci-integration.md`
 
 ### GitHub Actions
 

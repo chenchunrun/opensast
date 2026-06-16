@@ -10,7 +10,8 @@
 void vulnerable(char *user_input, char *path, size_t x, size_t y, char *password) {
     char buf[64];
     char sql[256];
-    char *ptr = malloc(32);
+    char *ptr = NULL;
+    char *ptr2 = NULL;
 
     // ruleid: cpp.security.buffer-overflow-gets
     gets(buf);
@@ -58,15 +59,16 @@ void vulnerable(char *user_input, char *path, size_t x, size_t y, char *password
     malloc(x * y);
 
     // ok: cpp.security.integer-overflow-malloc
-    if (x > SIZE_MAX / y) { return; }
-    malloc(x * y);
+    if (x > SIZE_MAX / y) {
+        malloc(x * y);
+    }
 
     // ruleid: cpp.security.use-after-free
     free(ptr);
 
     // ruleid: cpp.security.double-free
-    free(ptr);
-    free(ptr);
+    free(ptr2);
+    free(ptr2);
 
     // ruleid: cpp.security.insecure-random-rand
     rand();
@@ -85,8 +87,7 @@ void vulnerable(char *user_input, char *path, size_t x, size_t y, char *password
     ptr = malloc(128);
 
     // ok: cpp.security.null-pointer-dereference
-    ptr = malloc(128);
-    if (ptr == NULL) { return; }
+    if ((ptr = malloc(128)) == NULL) { return; }
 
     // ruleid: cpp.security.insecure-file-permission
     chmod(path, 0777);

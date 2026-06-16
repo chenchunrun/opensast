@@ -44,6 +44,7 @@ rules:
     patterns:
       - pattern: sprintf(...)
       - pattern-not: snprintf(...)
+      - pattern-not-regex: sprintf\s*\(\s*[^,]+,\s*"SELECT
 
   - id: cpp.security.buffer-overflow-strcpy
     languages: [c, cpp]
@@ -142,9 +143,7 @@ rules:
         - "A03:2021-Injection"
       confidence: HIGH
       technology: [c, cpp]
-    patterns:
-      - pattern: sprintf($BUF, "SELECT ...%s...", $VAR)
-      - pattern-not: sprintf($BUF, "...")
+    pattern-regex: sprintf\s*\(\s*\w+\s*,\s*"SELECT[^"]*%s
 
   - id: cpp.security.integer-overflow-malloc
     languages: [c, cpp]
@@ -175,7 +174,12 @@ rules:
         - "A04:2021-Insecure Design"
       confidence: MEDIUM
       technology: [c, cpp]
-    pattern: free($PTR);
+    patterns:
+      - pattern: free($PTR);
+      - pattern-not-inside: |
+          free($PTR);
+          ...
+          free($PTR);
 
   - id: cpp.security.double-free
     languages: [c, cpp]
@@ -192,7 +196,6 @@ rules:
     patterns:
       - pattern: |
           free($PTR);
-          ...
           free($PTR);
 
   - id: cpp.security.insecure-random-rand
@@ -238,9 +241,12 @@ rules:
         - "A04:2021-Insecure Design"
       confidence: MEDIUM
       technology: [c, cpp]
-    pattern-either:
-      - pattern: access($PATH, ...)
-      - pattern: open($PATH, ...)
+    patterns:
+      - pattern-inside: |
+          access($PATH, ...);
+          ...
+          open($PATH, ...);
+      - pattern: access($PATH, ...);
 
   - id: cpp.security.tempfile-mktemp
     languages: [c, cpp]
@@ -273,6 +279,8 @@ rules:
           $PTR = malloc(...)
       - pattern-not-inside: |
           if ($PTR == NULL) { ... }
+      - pattern-not-inside: |
+          if (($PTR = malloc(...)) == NULL) { ... }
 
   - id: cpp.security.insecure-file-permission
     languages: [c, cpp]
@@ -321,10 +329,15 @@ rules:
       technology: [c, cpp]
     patterns:
       - pattern-either:
-          - pattern: malloc(...)
-          - pattern: realloc(...)
-          - pattern: calloc(...)
-      - pattern-not-inside: |
+          - pattern: |
+              malloc(...);
+          - pattern: |
+              realloc(...);
+          - pattern: |
+              calloc(...);
+      - pattern-not: |
           $PTR = malloc(...);
-          ...
-          if ($PTR == NULL) { ... }
+      - pattern-not: |
+          malloc($X * $Y);
+      - pattern-not-inside: |
+          if ($COND) { ... }

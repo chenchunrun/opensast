@@ -137,3 +137,83 @@ rules:
           - pattern: $RESP.WriteAsync($VAR, ...);
       - pattern-not: $RESP.Write("...");
       - pattern-not: $RESP.WriteAsync("...", ...);
+
+  - id: csharp.security.ldap-injection
+    languages: [csharp]
+    severity: ERROR
+    message: "Detected LDAP query built from user input. Escape or parameterize filter values."
+    metadata:
+      category: security
+      cwe: ["CWE-90"]
+      owasp: ["A03:2021-Injection"]
+      confidence: HIGH
+      technology: [csharp]
+    patterns:
+      - pattern-either:
+          - pattern: $S.Filter = "(uid=" + $VAR + ")";
+          - pattern: $S.Filter = "(" + $VAR + ")";
+      - pattern-not: $S.Filter = "(uid=admin)";
+
+  - id: csharp.security.xpath-injection
+    languages: [csharp]
+    severity: ERROR
+    message: "Detected XPath expression built from user input."
+    metadata:
+      category: security
+      cwe: ["CWE-643"]
+      owasp: ["A03:2021-Injection"]
+      confidence: HIGH
+      technology: [csharp]
+    patterns:
+      - pattern-either:
+          - pattern: System.Xml.XPath.XPathExpression.Compile("//user[name='" + $VAR + "']");
+          - pattern: $XP.Compile("//user[name='" + $VAR + "']");
+      - pattern-not: System.Xml.XPath.XPathExpression.Compile("//user[name='admin']");
+
+  - id: csharp.security.insecure-random
+    languages: [csharp]
+    severity: WARNING
+    message: "Detected System.Random for security-sensitive values. Use RandomNumberGenerator."
+    metadata:
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+      confidence: HIGH
+      technology: [csharp]
+    patterns:
+      - pattern-either:
+          - pattern: new Random();
+          - pattern: new System.Random();
+
+  - id: csharp.security.open-redirect
+    languages: [csharp]
+    severity: WARNING
+    message: "Detected redirect to user-controlled URL."
+    metadata:
+      category: security
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [csharp]
+    patterns:
+      - pattern-either:
+          - pattern: $RESP.Redirect($URL);
+          - pattern: Response.Redirect($URL);
+      - pattern-not: Response.Redirect("...");
+      - pattern-not: $RESP.Redirect("...");
+
+  - id: csharp.security.xml-external-entity
+    languages: [csharp]
+    severity: ERROR
+    message: "Detected XmlReader/XmlDocument without safe resolver settings."
+    metadata:
+      category: security
+      cwe: ["CWE-611"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: MEDIUM
+      technology: [csharp]
+    patterns:
+      - pattern-either:
+          - pattern: new XmlDocument();
+          - pattern: XmlReader.Create($PATH);
+      - pattern-not: XmlReader.Create($PATH, $SETTINGS);

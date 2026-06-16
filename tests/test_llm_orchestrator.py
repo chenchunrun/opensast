@@ -377,7 +377,10 @@ def test_save_plan(tmp_path):
     with open(path) as f:
         data = json.load(f)
     assert data["project_archetype"] == "library"
+    assert data["schema_version"] == "1.0"
     assert "generated_at" in data
+    assert data["session_id"].startswith("sess-")
+    assert "scan" in data["completed_phases"]
 
 
 def test_save_plan_overwrites(tmp_path):

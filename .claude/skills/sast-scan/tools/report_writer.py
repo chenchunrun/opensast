@@ -133,6 +133,82 @@ def _severity_sort_key(finding: dict) -> int:
     return SEVERITY_ORDER.get(finding.get("severity", "info"), 0)
 
 
+def _triage_status(finding: dict) -> str | None:
+    triage = finding.get("triage")
+    if isinstance(triage, dict):
+        return triage.get("status")
+    nested = (finding.get("analysis_enrichment") or {}).get("triage")
+    if isinstance(nested, dict):
+        return nested.get("status")
+    return None
+
+
+def build_report_next_steps(summary: dict, findings: list[dict]) -> list[str]:
+    """Severity-driven actionable next steps for report.md and summary.json."""
+    if not findings:
+        findings = []
+    steps: list[str] = []
+    profile = summary.get("profile", "standard")
+    blocking = int(summary.get("blocking_findings", 0) or 0)
+    severity_counts = summary.get("severity_counts", {})
+
+    actionable = [
+        f for f in findings
+        if f.get("is_new") and not f.get("is_suppressed") and _triage_status(f) != "false-positive"
+    ]
+    top_blockers = sorted(actionable, key=_severity_sort_key, reverse=True)
+
+    if blocking > 0 or severity_counts.get("critical", 0) or severity_counts.get("high", 0):
+        high_count = severity_counts.get("critical", 0) + severity_counts.get("high", 0)
+        steps.append(
+            f"**Triage** {high_count} HIGH/CRITICAL finding(s): "
+            "`/sast-triage --findings .claude/sast/results/findings.json --focus high --bulk --repo-root .`"
+        )
+        if top_blockers:
+            top = top_blockers[0]
+            fp = top.get("fingerprint") or top.get("id") or "<fingerprint>"
+            steps.append(
+                f"**Fix** top blocker [{top.get('severity', '?').upper()}] "
+                f"`{top.get('file', '?')}:{top.get('start_line', '?')}`: "
+                f"`/sast-fix {fp} --test`"
+            )
+        else:
+            steps.append("**Review** blocking findings in `report.md` and confirm true positives before fixing.")
+    elif profile in {"standard", "deep"} and summary.get("llm_discovery_targets", 0):
+        steps.append(
+            "**LLM analysis:** complete Phase A–C using `.claude/sast/results/llm-analysis-plan.json` "
+            "and save `llm-findings.json`."
+        )
+        steps.append(
+            "**Merge LLM findings:** "
+            "`/sast-scan . --llm-findings .claude/sast/results/llm-findings.json --format all`"
+        )
+    else:
+        steps.append(
+            "**Pre-commit check:** `/sast-scan --changed-only --profile quick` before pushing changes."
+        )
+        steps.append(
+            "**Baseline hygiene:** `python3 .claude/skills/sast-scan/tools/baseline_manager.py stats`"
+        )
+
+    steps.append(
+        "**Session status:** "
+        "`python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results`"
+    )
+    return steps[:3]
+
+
+def _format_tool_outcome_md(outcome: dict) -> str:
+    tool = outcome.get("tool", "unknown")
+    status = outcome.get("status", "failed")
+    reason = outcome.get("reason") or outcome.get("error", "unknown error")
+    line = f"- **{tool}** ({status}): {reason}"
+    fix_command = outcome.get("fix_command")
+    if fix_command:
+        line += f"\n  - Fix: `{fix_command}`"
+    return line
+
+
 def _extract_cwe_ids(findings: list[dict]) -> set[str]:
     ids = set()
     for f in findings:
@@ -445,11 +521,18 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
     gate = summary.get("gate_result", {})
     gate_mode, gate_mode_desc = describe_gate_mode(gate)
 
+    next_steps = summary.get("next_steps") or build_report_next_steps(summary, findings)
+
     lines = [
         "# SAST Scan Report",
         "",
-        "## Executive Summary",
+        "## Next Steps",
         "",
+    ]
+    for index, step in enumerate(next_steps, start=1):
+        lines.append(f"{index}. {step}")
+    lines.extend(["", "## Executive Summary", ""])
+    lines.extend([
         f"- **Risk Grade:** {grade} ({score}/100)",
         f"- **Target:** {summary.get('target', 'N/A')}",
         f"- **Profile:** {summary.get('profile', 'N/A')}",
@@ -474,7 +557,7 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
         "",
         "| Severity | Count |",
         "|---|---:|",
-    ]
+    ])
     for sev in ("critical", "high", "medium", "low", "info"):
         lines.append(f"| {sev.capitalize()} | {severity_counts.get(sev, 0)} |")
     lines.append("")
@@ -566,11 +649,11 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
     if suppressed:
         lines.extend(["## Suppressed Findings", "", f"_{len(suppressed)} findings suppressed by baseline._", ""])
 
-    tool_errors = summary.get("tool_errors", [])
-    if tool_errors:
-        lines.extend(["## Tool Errors", ""])
-        for err in tool_errors:
-            lines.append(f"- **{err.get('tool', 'unknown')}:** {err.get('error', 'unknown error')}")
+    tool_outcomes = summary.get("tool_outcomes") or summary.get("tool_errors", [])
+    if tool_outcomes:
+        lines.extend(["## Tool Outcomes", ""])
+        for outcome in tool_outcomes:
+            lines.append(_format_tool_outcome_md(outcome))
         lines.append("")
 
     lines.append("## Remediation Priority")
@@ -613,6 +696,8 @@ def generate_json_summary(summary: dict, findings: list[dict], output_path: str)
         "gate_result": summary.get("gate_result", {}),
         "gate_mode": {"mode": gate_mode, "description": gate_mode_desc},
         "tool_errors": summary.get("tool_errors", []),
+        "tool_outcomes": summary.get("tool_outcomes", summary.get("tool_errors", [])),
+        "next_steps": summary.get("next_steps", build_report_next_steps(summary, findings)),
         "findings": findings,
         "findings_enriched": build_enriched_findings(findings),
     }
@@ -645,6 +730,25 @@ def generate_claude_summary(summary: dict, findings: list[dict]) -> str:
         f"Gate mode: {gate_mode} ({gate_mode_desc})",
         "",
     ]
+    next_steps = summary.get("next_steps") or build_report_next_steps(summary, findings)
+    if next_steps:
+        lines.append("Next steps:")
+        for i, step in enumerate(next_steps, 1):
+            lines.append(f"  {i}. {step.replace('**', '')}")
+        lines.append("")
+
+    tool_outcomes = summary.get("tool_outcomes") or summary.get("tool_errors", [])
+    skipped_or_failed = [o for o in tool_outcomes if o.get("status") in {"skipped", "failed"} or o.get("error")]
+    if skipped_or_failed:
+        lines.append("Tool skips/failures:")
+        for outcome in skipped_or_failed[:5]:
+            tool = outcome.get("tool", "?")
+            reason = outcome.get("reason") or outcome.get("error", "unknown")
+            lines.append(f"  - {tool}: {reason}")
+            if outcome.get("fix_command"):
+                lines.append(f"    Fix: {outcome['fix_command']}")
+        lines.append("")
+
     if sorted_blockers:
         lines.append("Top findings to address:")
         for i, f in enumerate(sorted_blockers, 1):
@@ -844,8 +948,21 @@ def _remediation_table(findings: list[dict]) -> str:
 def _tool_errors_html(errors: list[dict]) -> str:
     if not errors:
         return ""
-    rows = [f'<tr><td>{_esc(e.get("tool","?"))}</td><td>{_esc(e.get("error","unknown"))}</td></tr>' for e in errors]
-    return f'<h2>Tool Errors</h2><table><tr><th>Tool</th><th>Error</th></tr>\n{chr(10).join(rows)}\n</table>'
+    rows = []
+    for outcome in errors:
+        fix = outcome.get("fix_command")
+        fix_cell = f'<code>{_esc(fix)}</code>' if fix else "—"
+        status = outcome.get("status", "failed")
+        reason = outcome.get("reason") or outcome.get("error", "unknown")
+        rows.append(
+            f'<tr><td>{_esc(outcome.get("tool", "?"))}</td><td>{_esc(status)}</td>'
+            f'<td>{_esc(reason)}</td><td>{fix_cell}</td></tr>'
+        )
+    return (
+        '<h2>Tool Outcomes</h2>'
+        '<table><tr><th>Tool</th><th>Status</th><th>Reason</th><th>Fix</th></tr>\n'
+        f'{chr(10).join(rows)}\n</table>'
+    )
 
 
 # ── Markdown helper ────────────────────────────────────────────────

@@ -1,0 +1,51 @@
+name: OWASP Benchmark
+
+on:
+  workflow_dispatch:
+
+jobs:
+  owasp-benchmark:
+    runs-on: ubuntu-latest
+    env:
+      SEMGREP_SEND_METRICS: off
+      SEMGREP_ENABLE_VERSION_CHECK: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install semgrep certifi
+
+      - name: Fetch OWASP Benchmark (sparse)
+        run: |
+          mkdir -p benchmark/.cache
+          if [ ! -d benchmark/.cache/BenchmarkJava ]; then
+            git clone --depth 1 --filter=blob:none --sparse \
+              https://github.com/OWASP-Benchmark/BenchmarkJava.git \
+              benchmark/.cache/BenchmarkJava
+            cd benchmark/.cache/BenchmarkJava
+            git sparse-checkout set --no-cone \
+              '/src/main/java/org/owasp/benchmark/testcode/*.java' \
+              '/expectedresults-1.2.csv'
+          fi
+
+      - name: Run OWASP Benchmark
+        run: |
+          python3 benchmark/run_owasp_benchmark.py \
+            --output benchmark/results/owasp-benchmark-report.md
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: owasp-benchmark
+          path: |
+            benchmark/results/
+          retention-days: 30

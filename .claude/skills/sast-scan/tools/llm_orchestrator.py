@@ -19,6 +19,61 @@ MAX_TARGETS_DEFAULT = 20
 MAX_DISCOVER_DEFAULT = 25
 MAX_FILE_LINES_FULL = 200
 
+DISCOVER_CONTEXT_TEMPLATES: dict[str, dict[str, list[str]]] = {
+    "discover_idor": {
+        "read_files": ["route handlers with path params", "repository/service layer for resource access"],
+        "must_check": ["ownership filter on find/update/delete", "role escalation on member/admin endpoints"],
+    },
+    "discover_credentials": {
+        "read_files": [".env*", "config/*.yml", "secrets references in code"],
+        "must_check": ["real secrets vs placeholders", "secrets in logs or client bundles"],
+    },
+    "discover_auth_chain": {
+        "read_files": ["middleware/auth plugins", "protected route definitions"],
+        "must_check": ["middleware wired to routes", "timing-safe token/password comparison"],
+    },
+    "discover_crypto": {
+        "read_files": ["crypto helpers", "token signing", "password hashing"],
+        "must_check": ["hardcoded keys", "weak algorithms (MD5/SHA1/DES)", "static IV/salt"],
+    },
+    "discover_ssrf": {
+        "read_files": ["HTTP client wrappers", "webhook/fetch handlers"],
+        "must_check": ["user-controlled URLs", "allowlist enforcement", "internal IP/metadata access"],
+    },
+    "discover_sql_injection": {
+        "read_files": ["raw query builders", "ORM escape hatches"],
+        "must_check": ["string concatenation into SQL", "unsafe $queryRawUnsafe patterns"],
+    },
+    "discover_csrf": {
+        "read_files": ["state-changing routes", "cookie session config"],
+        "must_check": ["CSRF token on POST/PUT/DELETE", "SameSite cookie settings"],
+    },
+    "discover_rate_limiting": {
+        "read_files": ["auth endpoints", "rate limit middleware"],
+        "must_check": ["coverage on login/register", "IP spoofing via X-Forwarded-For"],
+    },
+    "discover_mass_assignment": {
+        "read_files": ["request body parsers", "ORM create/update calls"],
+        "must_check": ["field whitelisting", "spread of req.body into models"],
+    },
+    "discover_security_headers": {
+        "read_files": ["HTTP middleware", "framework security config"],
+        "must_check": ["CSP", "HSTS", "X-Frame-Options", "X-Content-Type-Options"],
+    },
+    "discover_config_security": {
+        "read_files": ["default config", "feature flags", "CORS setup"],
+        "must_check": ["change-me placeholders", "debug in production", "CORS *"],
+    },
+    "discover_cli_config": {
+        "read_files": ["config loaders", "template evaluators"],
+        "must_check": ["$(cmd) in config", "untrusted repo config", "weak file permissions"],
+    },
+    "discover_global_sweep": {
+        "read_files": ["cross-cutting security files", "email/notification templates"],
+        "must_check": ["email XSS", "header injection", "sensitive data in errors/logs"],
+    },
+}
+
 # --- Archetype context messages ---
 
 ARCHETYPE_CONTEXTS = {
@@ -1244,6 +1299,11 @@ def _generate_discover_targets(
             "analysis_prompt": sweep_prompt,
         })
 
+    for target in targets:
+        template = DISCOVER_CONTEXT_TEMPLATES.get(target.get("type", ""))
+        if template:
+            target["context_template"] = template
+
     return targets
 
 
@@ -1408,7 +1468,10 @@ def generate_analysis_plan(
     severity_counts: dict[str, int] = Counter(f.get("severity", "info") for f in unique_findings)
 
     plan = {
+        "schema_version": "1.0",
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "session_id": None,
+        "completed_phases": [],
         "project_archetype": archetype,
         "project_context": {
             "languages": project.get("languages", {}),
@@ -1464,8 +1527,38 @@ def generate_analysis_plan(
 
 def save_analysis_plan(plan: dict, output_dir: str) -> str:
     """Save analysis plan to JSON file."""
+    import uuid
+
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "llm-analysis-plan.json")
+
+    completed: set[str] = set(plan.get("completed_phases", []))
+    session_id = plan.get("session_id")
+
+    if os.path.isfile(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                existing = json.load(fh)
+            if isinstance(existing, dict):
+                session_id = session_id or existing.get("session_id")
+                completed.update(existing.get("completed_phases", []))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Could not load existing analysis plan from %s: %s", path, exc)
+
+    llm_findings_path = os.path.join(output_dir, "llm-findings.json")
+    if os.path.isfile(llm_findings_path):
+        try:
+            with open(llm_findings_path, encoding="utf-8") as fh:
+                llm_data = json.load(fh)
+            if isinstance(llm_data, dict) and llm_data.get("session_id"):
+                session_id = session_id or llm_data.get("session_id")
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Could not load llm-findings from %s: %s", llm_findings_path, exc)
+
+    plan["session_id"] = session_id or f"sess-{uuid.uuid4().hex[:12]}"
+    completed.add("scan")
+    plan["completed_phases"] = [phase for phase in ("scan", "phase_a", "phase_b", "phase_c", "triage", "import", "fix") if phase in completed]
+
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(plan, fh, indent=2, default=str)
     return path

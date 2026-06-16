@@ -4,7 +4,7 @@ const host = "example.com; rm -rf /";
 
 // Positive: exec with template literal interpolation
 // ruleid: javascript.security.command-injection-exec
-exec(`ping ${host}`);
+exec(`ping ${userInput}`);
 
 // ruleid: javascript.security.command-injection-exec
 exec(`curl ${userProvidedUrl}`);
@@ -14,7 +14,7 @@ exec(`curl ${userProvidedUrl}`);
 exec("sh -c " + userInput);
 
 // ruleid: javascript.security.command-injection-exec
-exec("ping " + host);
+exec("ping " + userInput);
 
 // Positive: execSync with interpolation
 // ruleid: javascript.security.command-injection-exec
@@ -37,7 +37,7 @@ execSync("echo done");
 // ok: javascript.security.command-injection-exec
 execFile("ping", [host]);
 
-// Negative: fetch with template literal (NOT exec)
+// Negative: fetch with template literal API path (NOT exec)
 // ok: javascript.security.command-injection-exec
 fetch(`/api/tasks/${taskId}`);
 

@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
 
 from normalize_findings import (
+    JSON_NORMALIZERS,
     NORMALIZERS,
     compute_fingerprint,
     compute_fingerprint_v1,
@@ -13,9 +14,11 @@ from normalize_findings import (
     normalize_bandit,
     normalize_checkov,
     normalize_codeql,
+    normalize_eslint_json,
     normalize_gitleaks,
     normalize_gosec,
     normalize_llm_findings,
+    normalize_phpstan_json,
     normalize_semgrep,
     validate_llm_findings,
 )
@@ -485,6 +488,44 @@ def test_normalizers_dict_contains_all_tools():
     assert "gosec" in NORMALIZERS
     assert "codeql" in NORMALIZERS
     assert "llm-analyzer" in NORMALIZERS
+    assert "eslint" in JSON_NORMALIZERS
+    assert "phpstan" in JSON_NORMALIZERS
+
+
+def test_normalize_eslint_json():
+    data = [{
+        "filePath": "src/app.js",
+        "messages": [{
+            "ruleId": "security/detect-object-injection",
+            "severity": 2,
+            "line": 12,
+            "message": "Potential object injection",
+        }],
+    }]
+    findings = normalize_eslint_json(data)
+    assert len(findings) == 1
+    assert findings[0]["tool"] == "eslint"
+    assert findings[0]["severity"] == "high"
+    assert findings[0]["file"] == "src/app.js"
+
+
+def test_normalize_phpstan_json():
+    data = {
+        "files": {
+            "src/User.php": {
+                "messages": [{
+                    "message": "Unsafe shell exec",
+                    "line": 8,
+                    "identifier": "security.shell.exec",
+                }],
+            },
+        },
+    }
+    findings = normalize_phpstan_json(data)
+    assert len(findings) == 1
+    assert findings[0]["tool"] == "phpstan"
+    assert findings[0]["severity"] == "high"
+    assert findings[0]["rule_id"] == "security.shell.exec"
 
 
 def test_normalizers_unknown_tool_falls_through():

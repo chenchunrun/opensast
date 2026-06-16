@@ -44,6 +44,22 @@ $ARGUMENTS
 
 If no target is provided, scan the current repository root (`.`).
 
+## Session Playbook
+
+Pick a path based on intent. After every scan, run session status and suggest the next Skill:
+
+```bash
+python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results
+```
+
+| Scenario | Profile | Follow-up Skills |
+|----------|---------|----------------|
+| Local pre-commit | `quick` + `--changed-only` | `/sast-fix <fp> --test` for blocking items |
+| PR / repo review | `standard` + `--format all` | `/sast-triage --bulk` → `/sast-baseline suppress` → `/sast-fix` |
+| Release audit (trusted repo) | `deep` + `--format all` | Complete Phase A–C here, then triage → fix → `--fail-on high` gate |
+
+**Always end the response with Next Skill hints** (see below).
+
 ## Workflow
 
 1. Determine the scan target and profile from arguments.
@@ -63,6 +79,13 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py $ARGUMENTS
 
 ### Phase A: Quick-Dismiss Rule Findings
 
+**Checklist (Phase A)**
+
+- [ ] Read `llm-analysis-plan.json` (`schema_version`, `session_id`, `analysis_targets`)
+- [ ] For each `validate_finding`: read `archetype_context` + `analysis_prompt`
+- [ ] Quick-dismiss obvious FPs with reason → `dismissed_targets[]`
+- [ ] Keep uncertain/high-signal items for deeper review
+
 Read `.claude/sast/results/llm-analysis-plan.json`. For each `validate_finding` target:
 
 - Read the `archetype_context` — this tells you if the pattern is normal or suspicious
@@ -74,6 +97,13 @@ Read `.claude/sast/results/llm-analysis-plan.json`. For each `validate_finding` 
 ---
 
 ### Phase B: Structured Security Discovery (13 discover types)
+
+**Checklist (Phase B)**
+
+- [ ] For each `discover_*` target: read `context_template.read_files` + `must_check`
+- [ ] Read actual code (do not rely on prompts alone)
+- [ ] Record confirmed issues as findings; note gaps for Phase C
+- [ ] Update counters: `discover_targets_analyzed`, `findings_discovered`
 
 For each `discover_*` target in the plan, READ the actual code and analyze:
 
@@ -103,6 +133,17 @@ For each `discover_*` target in the plan, READ the actual code and analyze:
 This is the critical differentiator — a free-form AI agent review that catches what
 structured checklists cannot. Structured discover types find known vulnerability classes,
 but miss issues requiring **cross-module reasoning** and **intent understanding**.
+
+**When to run Phase C (trigger conditions)**
+
+- `standard` / `deep` profile AND at least one of:
+  - ≥ 3 unresolved **HIGH/CRITICAL** rule findings after Phase A
+  - Phase B left a `discover_*` gap (business logic / cross-module concern)
+  - Archetype is `cli-tool` or multi-module `web-app` with auth/data-flow complexity
+- Skip Phase C on `quick` profile or when Phase B already covers the risk surface
+
+Save agent output to the same `llm-findings.json` envelope with `agent_review_complete: true`
+(see `validate_agent_findings_envelope` in `llm_findings_schema.py`).
 
 **Execute Phase C AFTER Phase B** by spawning a security-reviewer agent:
 
@@ -173,9 +214,11 @@ it's a TRUE POSITIVE. Be specific — reference actual code, not theoretical ris
 
 ### Phase D: Merge & Save Results
 
-Save all findings to `.claude/sast/results/llm-findings.json`:
+Save all findings to `.claude/sast/results/llm-findings.json` (schema v1.0):
 ```json
 {
+  "schema_version": "1.0",
+  "session_id": "sess-...",
   "project_archetype": "web-app",
   "llm_analysis_complete": true,
   "validate_targets_analyzed": 15,
@@ -185,9 +228,16 @@ Save all findings to `.claude/sast/results/llm-findings.json`:
   "findings_dismissed": 12,
   "findings_discovered": 27,
   "findings": [...],
-  "dismissed_targets": [{"target_id": "T-003", "reason": "..."}],
+  "dismissed_targets": [{"target_id": "T-003", "reason": "FP: CLI exec is expected"}],
+  "confirmed_findings": [{"target_id": "T-007", "finding": {...}}],
   "analysis_notes": "Summary"
 }
+```
+
+Import without hand-editing:
+
+```bash
+/sast-scan . --llm-findings .claude/sast/results/llm-findings.json --format all
 ```
 
 **Time budget**:
@@ -203,12 +253,29 @@ Save all findings to `.claude/sast/results/llm-findings.json`:
 10. Highlight blocking issues based on the configured gate.
 11. Provide remediation guidance with code examples.
 12. Ask for explicit permission before applying any code changes.
+13. Print session status and **Next Skill** commands the user can run next.
+
+## Next Skill (required in every scan response)
+
+After summarizing findings, always include actionable follow-ups:
+
+```markdown
+## Next steps
+1. **Session status:** `python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results`
+2. **Triage:** `/sast-triage --findings .claude/sast/results/findings.json --bulk --repo-root .`
+3. **Fix:** `/sast-fix <fingerprint> --test` (after triage confirms TP)
+```
+
+Adjust steps based on profile:
+- `quick`: skip LLM phases; point directly to fix for HIGH+.
+- `standard` / `deep`: if `llm-analysis-plan.json` exists and `llm-findings.json` is missing, remind user to complete Phase A–C before triage.
+- After LLM analysis: suggest re-scan with `--llm-findings .claude/sast/results/llm-findings.json`.
 
 ## Scan profiles
 
 | Profile | Use case | Tools | LLM | Agent |
 |---------|----------|-------|-----|-------|
-| quick | Pre-commit check | Semgrep + Gitleaks | No | No |
+| quick | Pre-commit check (`--changed-only` recommended) | Semgrep + Gitleaks | No | No |
 | standard | Regular scan | Semgrep + Gitleaks + Checkov | Phase A+B | Phase C |
 | deep | Security audit | All tools + CodeQL | Phase A+B (deep) | Phase C |
 

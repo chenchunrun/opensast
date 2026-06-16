@@ -212,11 +212,7 @@ rules:
       confidence: HIGH
       technology: [ruby]
     patterns:
-      - pattern-either:
-          - pattern: |
-              $VAR = "...password..."
-          - pattern: |
-              $VAR = "...secret..."
+      - pattern-regex: (?i)(password|secret|api_key|token)\s*=\s*["'][^"']+["']
       - pattern-not: $VAR = ENV[...]
 
   - id: ruby.security.weak-password-hash
@@ -232,13 +228,10 @@ rules:
       confidence: HIGH
       technology: [ruby]
     patterns:
-      - pattern-either:
-          - pattern: |
-              Digest::MD5.hexdigest($PASSWORD)
-          - pattern: |
-              Digest::SHA1.hexdigest($PASSWORD)
-      - pattern-not-inside: |
-          BCrypt::Password.create(...)
+      - pattern: Digest::MD5.hexdigest($PASS)
+      - metavariable-regex:
+          metavariable: $PASS
+          regex: (?i).*(pass|password|pwd).*
 
   - id: ruby.security.insecure-compare
     languages: [ruby]
@@ -253,14 +246,7 @@ rules:
       confidence: MEDIUM
       technology: [ruby]
     patterns:
-      - pattern-either:
-          - pattern: |
-              $SECRET == $VAR
-          - pattern: |
-              $VAR == $SECRET
-      - metavariable-regex:
-          metavariable: $SECRET
-          regex: "(?i)(password|token|secret|key|api_key|auth)"
+      - pattern-regex: (?i)\b(password|token|secret|api_key|auth)\w*\s*==\s*
       - pattern-not: |
           secure_compare(...)
 
@@ -360,7 +346,13 @@ rules:
     patterns:
       - pattern-either:
           - pattern: Digest::MD5.new
-          - pattern: Digest::MD5.hexdigest(...)
+          - pattern: Digest::MD5.hexdigest($ARG)
+      - pattern-not:
+          patterns:
+            - pattern: Digest::MD5.hexdigest($ARG)
+            - metavariable-regex:
+                metavariable: $ARG
+                regex: (?i).*(pass|password|pwd).*
 
   - id: ruby.security.weak-hash-sha1
     languages: [ruby]

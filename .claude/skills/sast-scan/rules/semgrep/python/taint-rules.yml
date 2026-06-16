@@ -1,0 +1,231 @@
+# Python taint-mode rules: track web/request input through assignments into sinks.
+
+rules:
+  - id: python.security.taint-sql-injection
+    languages: [python]
+    severity: ERROR
+    message: "Untrusted input flows into SQL execution. Use parameterized queries."
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [python]
+    mode: taint
+    pattern-sources: &py_web_sources
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.form[...]
+      - pattern: flask.request.values.get(...)
+      - pattern: request.args.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.form.get(...)
+      - pattern: input(...)
+    pattern-sanitizers: &py_sanitizers
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: shlex.quote(...)
+    pattern-propagators: &py_propagators
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: f"...{$X}..."
+        from: $X
+        to: ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CURSOR.execute($SQL, ...)
+              - pattern: $CONN.execute($SQL, ...)
+          - focus-metavariable: $SQL
+
+  - id: python.security.taint-command-injection
+    languages: [python]
+    severity: ERROR
+    message: "Untrusted input flows into command execution."
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.form[...]
+      - pattern: flask.request.values.get(...)
+      - pattern: request.args.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.form.get(...)
+      - pattern: input(...)
+    pattern-sanitizers:
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: shlex.quote(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: f"...{$X}..."
+        from: $X
+        to: ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run($CMD, shell=True, ...)
+              - pattern: subprocess.call($CMD, shell=True, ...)
+              - pattern: subprocess.Popen($CMD, shell=True, ...)
+              - pattern: os.system($CMD)
+          - focus-metavariable: $CMD
+
+  - id: python.security.taint-eval
+    languages: [python]
+    severity: ERROR
+    message: "Untrusted input flows into eval/exec."
+    metadata:
+      category: security
+      cwe: ["CWE-94"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.form[...]
+      - pattern: flask.request.values.get(...)
+      - pattern: request.args.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.form.get(...)
+      - pattern: input(...)
+    pattern-sanitizers:
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: shlex.quote(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: f"...{$X}..."
+        from: $X
+        to: ...
+    pattern-sinks:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: exec($X)
+
+  - id: python.security.taint-path-traversal
+    languages: [python]
+    severity: ERROR
+    message: "Untrusted input flows into file access."
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.form[...]
+      - pattern: flask.request.values.get(...)
+      - pattern: request.args.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.form.get(...)
+      - pattern: input(...)
+    pattern-sanitizers:
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: shlex.quote(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: f"...{$X}..."
+        from: $X
+        to: ...
+    pattern-sinks:
+      - pattern-either:
+          - pattern: open($PATH, ...)
+          - pattern: pathlib.Path($PATH)
+
+  - id: python.security.taint-ssrf
+    languages: [python]
+    severity: ERROR
+    message: "Untrusted input flows into outbound HTTP request."
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021-Server-Side Request Forgery"]
+      confidence: MEDIUM
+      technology: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.form[...]
+      - pattern: flask.request.values.get(...)
+      - pattern: request.args.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.form.get(...)
+      - pattern: input(...)
+    pattern-sanitizers:
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: shlex.quote(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: f"...{$X}..."
+        from: $X
+        to: ...
+    pattern-sinks:
+      - pattern-either:
+          - pattern: requests.get($URL, ...)
+          - pattern: requests.post($URL, ...)
+          - pattern: urllib.request.urlopen($URL, ...)
+
+  - id: python.security.taint-pickle
+    languages: [python]
+    severity: ERROR
+    message: "Untrusted input flows into pickle deserialization."
+    metadata:
+      category: security
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021-Software and Data Integrity Failures"]
+      confidence: MEDIUM
+      technology: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: flask.request.args.get(...)
+      - pattern: flask.request.form.get(...)
+      - pattern: flask.request.form[...]
+      - pattern: flask.request.values.get(...)
+      - pattern: request.args.get(...)
+      - pattern: request.GET.get(...)
+      - pattern: request.POST.get(...)
+      - pattern: request.form.get(...)
+      - pattern: input(...)
+    pattern-sanitizers:
+      - pattern: int(...)
+      - pattern: float(...)
+      - pattern: shlex.quote(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: f"...{$X}..."
+        from: $X
+        to: ...
+    pattern-sinks:
+      - pattern-either:
+          - pattern: pickle.loads($DATA)
+          - pattern: pickle.load($DATA)

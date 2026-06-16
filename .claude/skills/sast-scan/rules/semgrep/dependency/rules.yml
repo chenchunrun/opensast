@@ -13,13 +13,7 @@ rules:
         - "A06:2021-Vulnerable and Outdated Components"
       confidence: MEDIUM
       technology: [javascript, typescript, nodejs]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              "$VERSION"
-      - metavariable-regex:
-          metavariable: $VERSION
-          regex: '^\^|~'
+    pattern-regex: :\s*"[\^~]
 
   - id: js.security.known-vulnerable-package-lodash-old
     languages: [generic]
@@ -33,12 +27,7 @@ rules:
         - "A06:2021-Vulnerable and Outdated Components"
       confidence: HIGH
       technology: [javascript, typescript, nodejs]
-    patterns:
-      - pattern: |
-          "lodash": "$VER"
-      - metavariable-regex:
-          metavariable: $VER
-          regex: '^\^?0\.|^\^?1\.|^\^?2\.|^\^?3\.|^\^?4\.(0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16|17\.0|17\.1[0-9]|17\.2[01])'
+    pattern-regex: '"lodash"\s*:\s*"(?:\^|~)?(?:[0-3]\.|4\.(?:[0-9]|1[0-6])\.|4\.17\.(?:[0-9]|1[0-9]|20))"'
 
   - id: js.security.known-vulnerable-package-express-old
     languages: [generic]
@@ -52,12 +41,7 @@ rules:
         - "A06:2021-Vulnerable and Outdated Components"
       confidence: HIGH
       technology: [javascript, typescript, nodejs, express]
-    patterns:
-      - pattern: |
-          "express": "$VER"
-      - metavariable-regex:
-          metavariable: $VER
-          regex: '^\^?[0-3]\.'
+    pattern-regex: '"express"\s*:\s*"(?:\^|~)?[0-3]\.'
 
   - id: py.security.known-vulnerable-package-flask-old
     languages: [generic]
@@ -71,12 +55,7 @@ rules:
         - "A06:2021-Vulnerable and Outdated Components"
       confidence: HIGH
       technology: [python, flask]
-    patterns:
-      - pattern: |
-          flask = "$VER"
-      - metavariable-regex:
-          metavariable: $VER
-          regex: '^<[2]|^\^?[01]\.'
+    pattern-regex: flask\s*=\s*"(?:\^|~)?1\.
 
   - id: js.security.missing-lockfile
     languages: [generic]

@@ -30,16 +30,11 @@ rules:
         - "A03:2021-Injection"
       confidence: MEDIUM
       technology: [javascript, typescript]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              `...href="${$VAR}"...`
-          - pattern: |
-              `...src="${$VAR}"...`
-          - pattern: |
-              `...action="${$VAR}"...`
-          - pattern: |
-              `...style="${$VAR}"...`
+    pattern-either:
+      - pattern-regex: '`<[^`]*href\s*=\s*"\$\{'
+      - pattern-regex: '`<[^`]*src\s*=\s*"\$\{'
+      - pattern-regex: '`<[^`]*action\s*=\s*"\$\{'
+      - pattern-regex: '`<[^`]*style\s*=\s*"\$\{'
 
   - id: js.security.header-injection-content-disposition
     languages: [javascript, typescript]
@@ -53,14 +48,9 @@ rules:
         - "A05:2021-Security Misconfiguration"
       confidence: MEDIUM
       technology: [javascript, typescript, nodejs]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              "Content-Disposition": `...filename="${$VAR}"...`
-          - pattern: |
-              "Content-Disposition": "...filename=\"" + $VAR + "\""
-          - pattern: |
-              $HEADERS.set("Content-Disposition", `...${$VAR}...`)
+    pattern-either:
+      - pattern-regex: Content-Disposition.*filename.*"\$\{
+      - pattern-regex: Content-Disposition.*filename.*"\s*\+\s*
 
   - id: js.security.dom-xss-innerhtml
     languages: [javascript, typescript]
@@ -127,5 +117,5 @@ rules:
               _.merge($TARGET, $USER_INPUT)
           - pattern: |
               $.extend(true, $TARGET, $USER_INPUT)
-      - pattern-not-inside: |
-          if ($KEY === "__proto__" || $KEY === "constructor" || $KEY === "prototype") { ... }
+      - pattern-not: |
+          _.merge($TARGET, { ... })

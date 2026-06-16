@@ -57,9 +57,11 @@ rules:
       technology: [javascript, typescript, express, nodejs]
     patterns:
       - pattern: |
-          const app = express()
+          $APP = express()
       - pattern-not-inside: |
-          app.use(helmet())
+          $APP = express()
+          ...
+          $APP.use(helmet())
 
   - id: js.security.cookie-secure-false
     languages: [javascript, typescript]

@@ -1,0 +1,46 @@
+# Skill development — pytest + corpus + optional local scan (no LLM in CI).
+# Copy to .github/workflows/sast-skill-dev.yml
+
+name: SAST Skill Dev
+
+on:
+  pull_request:
+    paths:
+      - ".claude/skills/**"
+      - "tests/**"
+      - "examples/**"
+      - "scripts/**"
+
+jobs:
+  skill-dev:
+    runs-on: ubuntu-latest
+    env:
+      SEMGREP_SEND_METRICS: off
+      SEMGREP_ENABLE_VERSION_CHECK: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt semgrep certifi pytest
+      - name: Rule tests
+        run: |
+          python3 .claude/skills/sast-scan/tools/test_rules.py \
+            --rules-dir .claude/skills/sast-scan/rules/semgrep --test
+      - name: Unit tests
+        run: pytest tests/ -q
+      - name: Corpus report
+        run: |
+          python3 .claude/skills/sast-scan/tools/corpus_report.py \
+            --output .claude/sast/results/corpus-report.md || true
+      - name: Scan examples (smoke)
+        run: |
+          for dir in examples/python-sqli examples/js-xss examples/go-cmdi; do
+            python3 .claude/skills/sast-scan/tools/sast_runner.py \
+              --target "$dir" --profile quick --format json || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-dev-artifacts
+          path: .claude/sast/results/

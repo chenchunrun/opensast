@@ -54,7 +54,7 @@ AES.new(key)
 requests.get(url, params={"password": pwd})
 
 # ok: python.security.http-only-sensitive-query
-requests.post(url, json={"password": pwd})
+requests.post("https://api.example.com", json={"password": pwd})
 
 # ruleid: python.security.exception-broad
 try:

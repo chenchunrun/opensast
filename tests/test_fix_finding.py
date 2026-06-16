@@ -396,6 +396,37 @@ class TestGenerateTestStub:
 # CLI
 # ---------------------------------------------------------------------------
 
+class TestFixResultArtifact:
+    def test_main_writes_fix_result_json(self, monkeypatch, tmp_path):
+        findings_path = tmp_path / "findings.json"
+        findings_path.write_text(json.dumps({"findings": [_finding()]}), encoding="utf-8")
+        results_dir = tmp_path / ".claude" / "sast" / "results"
+        results_dir.mkdir(parents=True)
+
+        import fix_finding as ff
+
+        monkeypatch.setattr(
+            ff,
+            "rerun_targeted_scan",
+            lambda *a, **k: {"command": ["scan"], "returncode": 0, "output_dir": str(results_dir)},
+        )
+
+        exit_code = ff.main([
+            "fp-1",
+            "--findings", str(findings_path),
+            "--repo-root", str(tmp_path),
+            "--test",
+            "--output", "json",
+        ])
+        assert exit_code == 0
+        fix_result_path = results_dir / "fix-result.json"
+        assert fix_result_path.is_file()
+        data = json.loads(fix_result_path.read_text(encoding="utf-8"))
+        assert data["fingerprint"] == "fp-1"
+        assert "rescan_suggestion" in data
+        assert "changed-only" in data["rescan_suggestion"]
+
+
 class TestLoadFindings:
     def test_loads_from_dict(self):
         with tempfile.TemporaryDirectory() as tmpdir:

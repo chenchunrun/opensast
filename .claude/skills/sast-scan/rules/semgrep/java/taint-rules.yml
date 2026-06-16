@@ -1,6 +1,11 @@
 # Java taint-mode rules: track untrusted servlet input through variable
 # indirection into dangerous sinks. These complement the syntactic rules in
 # rules.yml, which only match the vulnerable call written inline.
+#
+# Known limit (accepted FN on OWASP Benchmark): cross-file / cross-method helpers
+# where tainted data is passed through a utility that Semgrep does not model as
+# a propagator. Do not overfit Benchmark fixtures for those cases — document and
+# rely on Skill Layer 2/3 for business-logic gaps.
 
 rules:
   - id: java.security.taint-sql-injection
@@ -67,9 +72,29 @@ rules:
       confidence: MEDIUM
       technology: [java]
     mode: taint
-    pattern-sources: *servlet_sources
-    pattern-sanitizers: *servlet_sanitizers
-    pattern-propagators: *collection_propagators
+    pattern-sources:
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers:
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators:
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -91,9 +116,29 @@ rules:
       confidence: MEDIUM
       technology: [java]
     mode: taint
-    pattern-sources: *servlet_sources
-    pattern-sanitizers: *servlet_sanitizers
-    pattern-propagators: *collection_propagators
+    pattern-sources:
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers:
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators:
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -125,9 +170,29 @@ rules:
       confidence: MEDIUM
       technology: [java]
     mode: taint
-    pattern-sources: *servlet_sources
-    pattern-sanitizers: *servlet_sanitizers
-    pattern-propagators: *collection_propagators
+    pattern-sources:
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers:
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators:
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
     pattern-sinks:
       - patterns:
           - pattern: $CTX.search($BASE, $FILTER, ...)
@@ -149,9 +214,29 @@ rules:
       confidence: MEDIUM
       technology: [java]
     mode: taint
-    pattern-sources: *servlet_sources
-    pattern-sanitizers: *servlet_sanitizers
-    pattern-propagators: *collection_propagators
+    pattern-sources:
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers:
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators:
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -172,9 +257,29 @@ rules:
       confidence: MEDIUM
       technology: [java]
     mode: taint
-    pattern-sources: *servlet_sources
-    pattern-sanitizers: *servlet_sanitizers
-    pattern-propagators: *collection_propagators
+    pattern-sources:
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers:
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators:
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -205,9 +310,29 @@ rules:
       confidence: MEDIUM
       technology: [java]
     mode: taint
-    pattern-sources: *servlet_sources
-    pattern-sanitizers: *servlet_sanitizers
-    pattern-propagators: *collection_propagators
+    pattern-sources:
+      - pattern: (HttpServletRequest $R).getParameter(...)
+      - pattern: (HttpServletRequest $R).getParameterValues(...)
+      - pattern: (HttpServletRequest $R).getHeader(...)
+      - pattern: (HttpServletRequest $R).getHeaders(...)
+      - pattern: (HttpServletRequest $R).getQueryString()
+      - pattern: (HttpServletRequest $R).getCookies()
+      - pattern: (HttpServletRequest $R).getInputStream()
+    pattern-sanitizers:
+      - pattern: org.owasp.esapi.ESAPI.encoder().$F(...)
+      - pattern: org.owasp.encoder.Encode.$F(...)
+      - pattern: org.springframework.web.util.HtmlUtils.htmlEscape(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Integer.valueOf(...)
+      - pattern: Long.parseLong(...)
+      - pattern: Double.parseDouble(...)
+    pattern-propagators:
+      - pattern: $C.add($X)
+        from: $X
+        to: $C
+      - pattern: $SB.append($X)
+        from: $X
+        to: $SB
     pattern-sinks:
       - patterns:
           - pattern-either:

@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "ski
 
 from report_writer import (
     build_enriched_findings,
+    build_report_next_steps,
     classify_evidence_strength,
     classify_finding_origin,
     generate_claude_summary,
@@ -31,7 +32,7 @@ def _make_summary(**overrides) -> dict:
         "new_findings": 2,
         "blocking_findings": 1,
         "severity_counts": {"critical": 0, "high": 1, "medium": 1, "low": 1, "info": 0},
-        "tool_errors": [],
+        "tool_outcomes": [],
         "gate_result": {"passed": False, "fail_on": "high", "blocking_count": 1, "review_findings_blocking": False},
     }
     base.update(overrides)
@@ -91,6 +92,8 @@ def test_generate_markdown_report():
         content = generate_markdown_report(_make_summary(), _make_findings(), path)
         assert os.path.isfile(path)
         assert "# SAST Scan Report" in content
+        assert "## Next Steps" in content
+        assert "/sast-triage" in content
         assert "SQL Injection" in content
         assert "Hardcoded password" in content
         assert "CI Gate" in content
@@ -140,12 +143,43 @@ def test_generate_markdown_with_suppressed():
 
 
 def test_generate_markdown_with_tool_errors():
-    summary = _make_summary(tool_errors=[{"tool": "gitleaks", "error": "not installed"}])
+    summary = _make_summary(tool_outcomes=[{
+        "tool": "gitleaks",
+        "status": "skipped",
+        "reason": "gitleaks is not installed",
+        "error": "gitleaks is not installed",
+        "fix_command": "brew install gitleaks  # or: https://github.com/gitleaks/gitleaks#installing",
+    }])
     with tempfile.TemporaryDirectory() as tmpdir:
         path = os.path.join(tmpdir, "report.md")
         content = generate_markdown_report(summary, [], path)
-        assert "Tool Errors" in content
+        assert "Tool Outcomes" in content
         assert "gitleaks" in content
+        assert "brew install gitleaks" in content
+
+
+def test_build_report_next_steps_clean_scan():
+    summary = _make_summary(total_findings=0, new_findings=0, blocking_findings=0, severity_counts={
+        "critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0,
+    })
+    # Explicitly ensure llm_discovery_targets is absent (else branch, not elif)
+    summary.pop("llm_discovery_targets", None)
+    steps = build_report_next_steps(summary, [])
+    assert len(steps) == 3
+    assert any("changed-only" in step for step in steps)
+
+
+def test_generate_claude_summary_includes_tool_outcomes():
+    summary = _make_summary(tool_outcomes=[{
+        "tool": "semgrep",
+        "status": "skipped",
+        "reason": "semgrep is not installed",
+        "error": "semgrep is not installed",
+        "fix_command": "pip install semgrep",
+    }])
+    text = generate_claude_summary(summary, [])
+    assert "semgrep" in text
+    assert "pip install semgrep" in text
 
 
 def test_risk_score():

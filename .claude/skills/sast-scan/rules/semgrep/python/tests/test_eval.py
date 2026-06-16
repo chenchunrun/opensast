@@ -1,13 +1,11 @@
 import ast
 
-user_input = "print('hello')"
-
 # Positive: eval with non-literal argument
 # ruleid: python.security.eval-usage
-eval(user_input)
+eval(request.args.get("expr"))
 
 # ruleid: python.security.eval-usage
-eval(request.args.get("expr"))
+eval(request.form["expression"])
 
 # ruleid: python.security.eval-usage
 result = eval(data["expression"])
@@ -20,4 +18,4 @@ eval("2+2")
 eval("len([1, 2, 3])")
 
 # ok: python.security.eval-usage
-ast.literal_eval(user_input)
+ast.literal_eval(request.args.get("expr"))

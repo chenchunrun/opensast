@@ -2,8 +2,10 @@ use rand::rngs::OsRng;
 use std::process::Command;
 use std::sync::Mutex;
 
-// ruleid: rust.security.unsafe-impl
+fn side_effect() {}
+
 struct UnsafeType;
+// ruleid: rust.security.unsafe-impl
 unsafe impl Send for UnsafeType {}
 
 // ruleid: rust.security.unsafe-fn-pointer
@@ -13,7 +15,7 @@ unsafe fn dangerous(ptr: *const i32) -> i32 {
 
 fn vulnerable(user_input: String, bytes: &[u8], path: &str, mutex: Mutex<String>) {
     // ruleid: rust.security.unsafe-block
-    unsafe { *bytes.as_ptr() };
+    unsafe { side_effect(); }
 
     let _x = UnsafeType;
 

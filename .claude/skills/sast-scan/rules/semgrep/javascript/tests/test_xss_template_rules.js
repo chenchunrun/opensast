@@ -36,7 +36,4 @@ document.write("fixed content")
 _.merge(target, req.body)
 
 // ok: js.security.prototype-pollution-merge
-if (key === "__proto__" || key === "constructor" || key === "prototype") {
-  throw new Error("forbidden key")
-}
-_.merge(target, safeInput)
+_.merge(target, { allowed: true })

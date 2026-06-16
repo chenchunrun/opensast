@@ -74,7 +74,8 @@ rules:
         - "A05:2021-Security Misconfiguration"
       confidence: HIGH
       technology: [swift, ios]
-    pattern: 'HTTPCookie(properties: [...])'
+    patterns:
+      - pattern-regex: 'HTTPCookie\(properties:(?![^)]*(?i)\.secure\s*:)'
 
   - id: swift.security.keychain-insecure
     languages: [swift]
@@ -164,10 +165,11 @@ rules:
     patterns:
       - pattern: |
           #if DEBUG
-          ...
           print($VAR)
-          ...
           #endif
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)^(password|token|secret)$
 
   - id: swift.security.assert-in-production
     languages: [swift]
@@ -255,10 +257,15 @@ rules:
       confidence: HIGH
       technology: [kotlin, android]
     patterns:
+      - pattern-inside: |
+          class $TRUST {
+            ...
+          }
       - pattern-either:
-          - pattern: TrustAllManager
-          - pattern: checkServerTrusted(...)
-          - pattern: getAcceptedIssuers()
+          - pattern: |
+              fun checkServerTrusted(...) { ... }
+          - pattern: |
+              fun getAcceptedIssuers() = ...
 
   - id: kotlin.security.intent-injection
     languages: [kotlin]

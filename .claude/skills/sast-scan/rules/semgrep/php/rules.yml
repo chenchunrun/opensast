@@ -212,12 +212,11 @@ rules:
       technology: [php]
     patterns:
       - pattern-either:
-          - pattern: md5($PASSWORD)
-          - pattern: sha1($PASSWORD)
           - pattern: md5($PASS)
           - pattern: sha1($PASS)
-      - pattern-not-inside: |
-          password_hash(...)
+      - metavariable-regex:
+          metavariable: $PASS
+          regex: (?i).*(pass|password|pwd).*
 
   - id: php.security.weak-hash-md5
     languages: [php]
@@ -231,7 +230,14 @@ rules:
         - "A02:2021-Cryptographic Failures"
       confidence: HIGH
       technology: [php]
-    pattern: md5(...)
+    patterns:
+      - pattern: md5($ARG)
+      - pattern-not:
+          patterns:
+            - pattern: md5($ARG)
+            - metavariable-regex:
+                metavariable: $ARG
+                regex: (?i).*(pass|password|pwd).*
 
   - id: php.security.weak-hash-sha1
     languages: [php]
@@ -245,7 +251,14 @@ rules:
         - "A02:2021-Cryptographic Failures"
       confidence: HIGH
       technology: [php]
-    pattern: sha1(...)
+    patterns:
+      - pattern: sha1($ARG)
+      - pattern-not:
+          patterns:
+            - pattern: sha1($ARG)
+            - metavariable-regex:
+                metavariable: $ARG
+                regex: (?i).*(pass|password|pwd).*
 
   - id: php.security.insecure-random
     languages: [php]
@@ -284,6 +297,12 @@ rules:
           - pattern: readfile($USER_INPUT)
       - pattern-not: fopen("...", ...)
       - pattern-not: file_get_contents("...")
+      - pattern-not:
+          patterns:
+            - pattern: file_get_contents($URL)
+            - metavariable-regex:
+                metavariable: $URL
+                regex: (?i).*(url|uri|link|endpoint|host).*
 
   - id: php.security.unserialize-unsafe
     languages: [php]
@@ -318,6 +337,9 @@ rules:
           - pattern: file_get_contents($URL)
           - pattern: curl_exec($CH)
       - pattern-not: file_get_contents("...")
+      - metavariable-regex:
+          metavariable: $URL
+          regex: (?i).*(url|uri|link|endpoint|host).*
 
   - id: php.security.debug-enabled
     languages: [php]
@@ -354,8 +376,8 @@ rules:
         - "A05:2021-Security Misconfiguration"
       confidence: HIGH
       technology: [php, laravel]
-    pattern: |
-        APP_DEBUG=true
+    patterns:
+      - pattern-regex: APP_DEBUG\s*=\s*true
 
   - id: php.security.laravel-csrf-disabled
     languages: [php]
@@ -369,7 +391,9 @@ rules:
         - "A01:2021-Broken Access Control"
       confidence: HIGH
       technology: [php, laravel]
-    pattern: $except = [...]
+    pattern-either:
+      - pattern: $except = ['*']
+      - pattern: $except = ["*"]
 
   - id: php.security.laravel-mass-assignment
     languages: [php]

@@ -1,5 +1,13 @@
 # CI Integration Guide
 
+## Scope
+
+**CI runs Layer 1 only** — `sast_runner.py` with `standard` (or `quick`) profile, `--fail-on`, and SARIF upload.
+
+- **Do not** automate Claude API / Layer 2–3 analysis in CI. Run `/sast-scan` in a Claude Code session for LLM and Agent tiers.
+- **`deep` profile** enables CodeQL and may execute package-manager builds. Use only on **trusted** repositories. Default CI workflows should use `standard`.
+- Docker image (`Dockerfile.sast`) is a **rules-layer sidecar** for CI, not a full Skill runtime.
+
 ## GitHub Actions
 
 A ready-to-use workflow is provided at `.github/workflows/sast.yml`.
@@ -64,11 +72,12 @@ sast:
     - pip install --no-cache-dir pyyaml semgrep checkov
     - curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin
   script:
-    - python3 .claude/skills/sast-scan/tools/sast_runner.py
-        --target .
-        --profile standard
-        --format all
-        --fail-on high
+    - >
+      python3 .claude/skills/sast-scan/tools/sast_runner.py
+      --target .
+      --profile standard
+      --format all
+      --fail-on high
   artifacts:
     when: always
     paths:
@@ -80,16 +89,20 @@ sast:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 ```
 
-### With Docker Image
+### Docker image (rules-layer sidecar)
 
-Build the included Dockerfile and use it directly:
+`Dockerfile.sast` runs `sast_runner.py` only — suitable for CI gates and SARIF upload.
+It does **not** include Claude Code or LLM/Agent analysis. Use Skills in the IDE for Layer 2/3.
+
+Build and use directly:
 
 ```yaml
 sast:
   stage: test
   image: your-registry/opensast:latest
   script:
-    - --target .
+    - >
+      --target .
       --profile standard
       --format all
       --fail-on high
@@ -110,6 +123,27 @@ sast:
 | 4 | Scanner execution failed |
 | 5 | Report generation failed |
 | 6 | Configuration error |
+
+## Java / C# deep analysis (CodeQL, not SpotBugs/Roslyn)
+
+OpenSAST intentionally **does not** ship SpotBugs or Roslyn analyzer runners in the Skill layer. They require full build graphs, slow JVM/MSBuild pipelines, and duplicate what CodeQL already covers in `deep` profile.
+
+| Language | Rules CI (`standard`) | Deep audit (`deep` + trusted repo) |
+|----------|----------------------|-------------------------------------|
+| Java | Semgrep + optional Bandit-style tools | **CodeQL** (primary inter-procedural engine) |
+| C# | Semgrep custom rules | **CodeQL** (primary inter-procedural engine) |
+
+Recommended paths:
+
+```bash
+# PR / nightly gate — rules only, no build required
+python3 .claude/skills/sast-scan/tools/sast_runner.py . --profile standard --format all --fail-on high
+
+# Release audit — trusted repo, enables CodeQL
+/sast-scan . --profile deep --format sarif
+```
+
+In Claude Code sessions, combine `deep` rule signals with Layer 2/3 Skill analysis (`/sast-triage`, `/sast-fix`). Do **not** wire SpotBugs/Roslyn into default CI — use CodeQL for Java/C# inter-procedural coverage when builds are acceptable.
 
 ## Baseline in CI
 

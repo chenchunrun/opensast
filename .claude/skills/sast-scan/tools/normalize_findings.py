@@ -1,6 +1,7 @@
 """Convert tool-specific scan results into a unified finding format."""
 
 import hashlib
+import os
 from collections import defaultdict
 
 SEVERITY_MAP_SEMGREP = {"error": "high", "warning": "medium", "note": "info", "none": "info"}
@@ -328,71 +329,26 @@ def normalize_codeql(sarif_data: dict) -> list[dict]:
 
 
 def validate_llm_findings(data: dict | list[dict]) -> tuple[bool, list[str]]:
-    if isinstance(data, dict):
-        raw_findings = data.get("findings", [])
-    elif isinstance(data, list):
-        raw_findings = data
-    else:
-        return False, ["LLM findings payload must be a list or an object with a 'findings' key"]
+    # Lazy import to avoid circular dependency (llm_findings_schema imports normalize_findings helpers)
+    try:
+        from llm_findings_schema import validate_llm_findings_envelope
+    except ImportError as exc:
+        return False, [f"Failed to import llm_findings_schema: {exc}"]
 
-    if not isinstance(raw_findings, list):
-        return False, ["LLM findings 'findings' field must be a list"]
-
-    errors: list[str] = []
-    for idx, item in enumerate(raw_findings):
-        prefix = f"finding[{idx}]"
-        if not isinstance(item, dict):
-            errors.append(f"{prefix}: entry must be an object")
-            continue
-
-        for key in ("rule_id", "title", "severity", "file", "message"):
-            if not item.get(key):
-                errors.append(f"{prefix}: missing required field '{key}'")
-
-        severity = str(item.get("severity", "")).lower()
-        if severity and severity not in VALID_LLM_SEVERITIES:
-            errors.append(f"{prefix}: invalid severity '{item.get('severity')}'")
-
-        confidence = str(item.get("confidence", "medium")).lower()
-        if confidence and confidence not in VALID_LLM_CONFIDENCE:
-            errors.append(f"{prefix}: invalid confidence '{item.get('confidence')}'")
-
-        triage = item.get("triage")
-        if triage is not None:
-            if not isinstance(triage, dict):
-                errors.append(f"{prefix}: triage must be an object")
-            else:
-                status = triage.get("status")
-                if status and status not in VALID_LLM_TRIAGE:
-                    errors.append(f"{prefix}: invalid triage.status '{status}'")
-
-        evidence = item.get("evidence")
-        if evidence is not None:
-            if not isinstance(evidence, dict):
-                errors.append(f"{prefix}: evidence must be an object")
-            else:
-                dataflow = evidence.get("dataflow", [])
-                if dataflow is not None and not isinstance(dataflow, list):
-                    errors.append(f"{prefix}: evidence.dataflow must be a list")
-
-        for key in ("start_line", "end_line"):
-            if key in item and item[key] is not None and not isinstance(item[key], int):
-                errors.append(f"{prefix}: '{key}' must be an integer")
-
-    return len(errors) == 0, errors
+    return validate_llm_findings_envelope(data)
 
 
 def normalize_llm_findings(data: dict | list[dict]) -> list[dict]:
+    try:
+        from llm_findings_schema import extract_importable_findings
+    except ImportError as exc:
+        return []
+
     is_valid, _ = validate_llm_findings(data)
     if not is_valid:
         return []
 
-    if isinstance(data, dict):
-        raw_findings = data.get("findings", [])
-    elif isinstance(data, list):
-        raw_findings = data
-    else:
-        return []
+    raw_findings = extract_importable_findings(data)
 
     findings: list[dict] = []
     for item in raw_findings:
@@ -486,6 +442,54 @@ def normalize_cargo_audit_json(data: dict) -> list[dict]:
     return findings
 
 
+def normalize_phpstan_json(data: dict) -> list[dict]:
+    findings: list[dict] = []
+    files = data.get("files", {})
+    if not isinstance(files, dict):
+        return findings
+
+    security_identifiers = (
+        "security.",
+        "unsafe",
+        "eval",
+        "shell",
+        "sql",
+        "xss",
+        "path",
+    )
+
+    for file_path, payload in files.items():
+        if not isinstance(payload, dict):
+            continue
+        # Normalize path to prevent traversal and ensure relative paths
+        safe_path = os.path.normpath(file_path)
+        if safe_path.startswith("..") or os.path.isabs(safe_path):
+            safe_path = safe_path.lstrip("/")
+        for msg in payload.get("messages", []):
+            if not isinstance(msg, dict):
+                continue
+            identifier = str(msg.get("identifier", "phpstan"))
+            message = msg.get("message", identifier)
+            severity = "medium"
+            lower_id = identifier.lower()
+            if any(token in lower_id for token in security_identifiers):
+                severity = "high"
+            if msg.get("ignorable") and "security." not in lower_id:
+                severity = "low"
+            findings.append(_build(
+                tool="phpstan",
+                rule_id=identifier,
+                title=identifier,
+                severity=severity,
+                file_path=safe_path,
+                start_line=msg.get("line", 0),
+                end_line=msg.get("line", 0),
+                message=message,
+                confidence="medium",
+            ))
+    return findings
+
+
 def normalize_swiftlint_json(data: list) -> list[dict]:
     findings: list[dict] = []
     sev_map = {"error": "high", "warning": "medium", "weak": "low"}
@@ -517,6 +521,7 @@ JSON_NORMALIZERS: dict[str, callable] = {
     "eslint": normalize_eslint_json,
     "brakeman": normalize_brakeman_json,
     "cargo-audit": normalize_cargo_audit_json,
+    "phpstan": normalize_phpstan_json,
     "swiftlint": normalize_swiftlint_json,
 }
 

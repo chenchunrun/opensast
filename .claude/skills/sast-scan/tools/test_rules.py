@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,14 @@ from run_semgrep import build_semgrep_env, get_semgrep_binary
 logger = logging.getLogger(__name__)
 
 RULES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rules", "semgrep")
+
+# Semgrep test annotations (see semgrep/test.py).
+_ANNOTATION_RE = re.compile(
+    r"(?P<prefix>\#\s*|//\s*|<!--\s*|\(\*\s*)"
+    r"(?P<kind>ruleid|ok|todoruleid|todook)\s*:\s*"
+    r"(?P<ids>[^\n*]*(?:\*(?!>)[^\n*]*)*)",
+    re.IGNORECASE,
+)
 
 
 def discover_rule_tests(rules_dir: str = RULES_DIR) -> list[dict]:
@@ -74,6 +83,55 @@ def _collect_test_ruleids(test_dir: str) -> set[str]:
     return ruleids
 
 
+def _parse_annotation_rule_ids(line: str) -> set[str]:
+    """Return rule IDs referenced by Semgrep test annotations on a line."""
+    rule_ids: set[str] = set()
+    for match in _ANNOTATION_RE.finditer(line):
+        raw_ids = match.group("ids").strip()
+        if raw_ids.startswith(("deepok", "prook", "deepruleid", "proruleid")):
+            _, _, raw_ids = raw_ids.partition(":")
+            raw_ids = raw_ids.strip()
+        for rule_id in raw_ids.split(","):
+            cleaned = rule_id.strip().rstrip("-*/")
+            if cleaned:
+                rule_ids.add(cleaned)
+    return rule_ids
+
+
+def _filter_fixture_annotations(content: str, allowed_rule_ids: set[str]) -> str:
+    """Drop test annotations for rules outside the current YAML config.
+
+    Semgrep ``--test`` fails with a rule-id mismatch when a fixture mentions a
+    rule that never fires in that file while another rule does fire. Merging
+    fixtures for multiple YAML configs exacerbates this, so we keep only
+    annotations for rules declared in the active config.
+    """
+    if not allowed_rule_ids:
+        return content
+
+    filtered_lines: list[str] = []
+    for line in content.splitlines():
+        if not _ANNOTATION_RE.search(line):
+            filtered_lines.append(line)
+            continue
+
+        kept: list[str] = []
+        last_end = 0
+        for match in _ANNOTATION_RE.finditer(line):
+            kept.append(line[last_end:match.start()])
+            referenced = _parse_annotation_rule_ids(match.group(0))
+            if referenced & allowed_rule_ids:
+                kept.append(match.group(0))
+            else:
+                prefix = match.group("prefix")
+                if prefix.strip() in {"#", "//", "<!--", "(*"}:
+                    kept.append(prefix.rstrip())
+            last_end = match.end()
+        kept.append(line[last_end:])
+        filtered_lines.append("".join(kept).rstrip())
+    return "\n".join(filtered_lines) + ("\n" if content.endswith("\n") else "")
+
+
 def _collect_matching_test_files(test_dir: str, rule_ids: list[str]) -> list[str]:
     if not test_dir or not os.path.isdir(test_dir) or not rule_ids:
         return []
@@ -83,10 +141,10 @@ def _collect_matching_test_files(test_dir: str, rule_ids: list[str]) -> list[str
         if not path.is_file() or path.name.startswith("."):
             continue
         with open(path, encoding="utf-8") as fh:
-            content = fh.read()
-        if not any(rule_id in content for rule_id in rule_id_set):
-            continue
-        selected.append(str(path))
+            for line in fh:
+                if _parse_annotation_rule_ids(line) & rule_id_set:
+                    selected.append(str(path))
+                    break
     return selected
 
 
@@ -194,28 +252,31 @@ def write_rule_coverage_report(coverage: dict, output_path: str) -> None:
         fh.write(content)
 
 
-def _stage_semgrep_test(rule_path: str, test_files: list[str], staged_dir: str) -> None:
-    """Stage rule config and merged test fixtures for ``semgrep --test``.
+def _stage_semgrep_test(
+    rule_path: str,
+    test_file: str,
+    staged_dir: str,
+    rule_ids: list[str] | None = None,
+) -> str:
+    """Stage one rule config and fixture pair for ``semgrep --test``.
 
-    Semgrep pairs ``<config-stem>.yml`` with ``<config-stem>.<lang-ext>`` in the
-    same directory. Multiple fixture files for one config are merged per extension.
+    Semgrep pairs ``<config-stem>.yml`` with ``<config-stem>.<lang-ext>`` in
+    the same directory. Each fixture is staged separately (as ``rules.<ext>``)
+    with annotations filtered to the active config's rule IDs.
     """
     shutil.copy2(rule_path, os.path.join(staged_dir, os.path.basename(rule_path)))
     rule_stem = Path(rule_path).stem
-    by_ext: dict[str, list[str]] = {}
-    for path in test_files:
-        by_ext.setdefault(Path(path).suffix, []).append(path)
-    for ext, paths in by_ext.items():
-        merged_path = os.path.join(staged_dir, f"{rule_stem}{ext}")
-        with open(merged_path, "w", encoding="utf-8") as out:
-            for i, path in enumerate(paths):
-                with open(path, encoding="utf-8") as inp:
-                    content = inp.read()
-                if i:
-                    out.write("\n")
-                out.write(content)
-                if content and not content.endswith("\n"):
-                    out.write("\n")
+    ext = Path(test_file).suffix
+    staged_test_path = os.path.join(staged_dir, f"{rule_stem}{ext}")
+    with open(test_file, encoding="utf-8") as inp:
+        content = inp.read()
+    if rule_ids:
+        content = _filter_fixture_annotations(content, set(rule_ids))
+    with open(staged_test_path, "w", encoding="utf-8") as out:
+        out.write(content)
+        if content and not content.endswith("\n"):
+            out.write("\n")
+    return staged_test_path
 
 
 def validate_rules(rules_dir: str = RULES_DIR, timeout: int = 60) -> dict:
@@ -293,55 +354,66 @@ def test_rules(rules_dir: str = RULES_DIR, verbose: bool = False) -> dict:
         if not test_dir or not os.path.isdir(test_dir) or not test_files:
             continue
 
-        try:
-            with tempfile.TemporaryDirectory(prefix="opensast-rule-tests-") as staged_dir:
-                _stage_semgrep_test(rule_path, test_files, staged_dir)
-                cmd = [semgrep_bin, "--test", staged_dir]
-                if verbose:
-                    cmd.append("--verbose")
-                proc = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=120,
-                    env=build_semgrep_env(),
-                )
-                output = proc.stdout + proc.stderr
+        rule_ids = entry.get("rule_ids") or []
+        file_results: list[dict] = []
+        outputs: list[str] = []
+        entry_passed = True
 
-                entry_result = {
-                    "language": entry["language"],
-                    "rule_path": rule_path,
-                    "test_dir": test_dir,
-                    "test_files": test_files,
-                    "exit_code": proc.returncode,
-                    "output": output,
-                    "passed": proc.returncode == 0,
-                }
-
-                if "test files" in output:
+        for test_file in test_files:
+            try:
+                with tempfile.TemporaryDirectory(prefix="opensast-rule-tests-") as staged_dir:
+                    _stage_semgrep_test(rule_path, test_file, staged_dir, rule_ids)
+                    cmd = [semgrep_bin, "--test", staged_dir]
+                    if verbose:
+                        cmd.append("--verbose")
+                    proc = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=120,
+                        env=build_semgrep_env(),
+                    )
+                    output = proc.stdout + proc.stderr
+                    outputs.append(output)
+                    file_passed = proc.returncode == 0
+                    file_results.append({
+                        "test_file": test_file,
+                        "passed": file_passed,
+                        "exit_code": proc.returncode,
+                        "output": output,
+                    })
                     total += 1
-                    if proc.returncode == 0:
+                    if file_passed:
                         passed += 1
                     else:
                         failed += 1
+                        entry_passed = False
 
-        except subprocess.TimeoutExpired:
-            entry_result = {
-                "language": entry["language"],
-                "rule_path": rule_path,
-                "test_dir": test_dir,
-                "test_files": test_files,
-                "exit_code": -1,
-                "output": "timed out",
-                "passed": False,
-            }
-            total += 1
-            failed += 1
-        except FileNotFoundError:
-            return {
-                "passed": False,
-                "results": [{"error": "semgrep is not installed"}],
-                "total_tests": 0, "passed_tests": 0, "failed_tests": 1,
-            }
+            except subprocess.TimeoutExpired:
+                file_results.append({
+                    "test_file": test_file,
+                    "passed": False,
+                    "exit_code": -1,
+                    "output": "timed out",
+                })
+                outputs.append("timed out")
+                total += 1
+                failed += 1
+                entry_passed = False
+            except FileNotFoundError:
+                return {
+                    "passed": False,
+                    "results": [{"error": "semgrep is not installed"}],
+                    "total_tests": 0, "passed_tests": 0, "failed_tests": 1,
+                }
 
-        results.append(entry_result)
+        results.append({
+            "language": entry["language"],
+            "rule_path": rule_path,
+            "test_dir": test_dir,
+            "test_files": test_files,
+            "file_results": file_results,
+            "exit_code": 0 if entry_passed else 1,
+            "output": "\n".join(outputs),
+            "passed": entry_passed,
+        })
 
     return {
         "passed": failed == 0,
@@ -358,6 +430,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Test Semgrep custom rules")
     parser.add_argument("--rules-dir", default=RULES_DIR, help="Rules directory")
     parser.add_argument("--validate-only", action="store_true", help="Only validate, don't test")
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run semgrep --test for rule fixtures (default when not using --validate-only)",
+    )
     parser.add_argument(
         "--coverage-report",
         help="Write rule coverage audit to a .json or .md file",
@@ -389,6 +466,12 @@ def main() -> int:
         return 1
 
     if args.validate_only:
+        return 0
+
+    if not args.test and not args.validate_only:
+        args.test = True
+
+    if not args.test:
         return 0
 
     test_result = test_rules(args.rules_dir, verbose=args.verbose)

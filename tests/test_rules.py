@@ -35,6 +35,19 @@ def test_discover_rule_tests():
     assert "javascript" in languages
     assert "java" in languages
     assert "go" in languages
+    assert "csharp" in languages
+
+
+def test_taint_rule_files_discovered():
+    entries = discover_rule_tests(RULES_DIR)
+    taint_files = {
+        (e["language"], os.path.basename(e["rule_path"]))
+        for e in entries
+        if os.path.basename(e["rule_path"]) == "taint-rules.yml"
+    }
+    assert ("python", "taint-rules.yml") in taint_files
+    assert ("javascript", "taint-rules.yml") in taint_files
+    assert ("java", "taint-rules.yml") in taint_files
     for entry in entries:
         assert os.path.isfile(entry["rule_path"])
         assert entry["language"]
@@ -116,7 +129,12 @@ def test_all_rules_files_valid_yaml():
             if rule.get("mode") == "taint":
                 assert "pattern-sources" in rule and "pattern-sinks" in rule
             else:
-                assert "patterns" in rule or "pattern" in rule or "pattern-either" in rule
+                assert (
+                    "patterns" in rule
+                    or "pattern" in rule
+                    or "pattern-either" in rule
+                    or "pattern-regex" in rule
+                )
             assert rule.get("metadata", {}).get("cwe")
             assert rule.get("metadata", {}).get("owasp")
 
@@ -279,22 +297,50 @@ def test_rules_have_positive_and_negative_cases():
             assert has_ok, f"{path}: no negative test cases (ok:)"
 
 
-def test_stage_semgrep_test_merges_fixtures_by_extension():
+def test_stage_semgrep_test_stages_all_rules():
+    """Stage a test fixture with all rule IDs allowed — filter is effectively a no-op."""
     import tempfile
 
     with tempfile.TemporaryDirectory() as staged_dir:
         rule_path = os.path.join(RULES_DIR, "java", "rules.yml")
-        test_files = [
-            os.path.join(RULES_DIR, "java", "tests", "TestSqlInjection.java"),
-            os.path.join(RULES_DIR, "java", "tests", "TestMiscSecurity.java"),
-        ]
-        _rule_tester._stage_semgrep_test(rule_path, test_files, staged_dir)
-        merged = os.path.join(staged_dir, "rules.java")
+        test_file = os.path.join(RULES_DIR, "java", "tests", "TestSqlInjection.java")
+        rule_ids = _rule_tester._load_rule_ids(rule_path)
+        staged_test = _rule_tester._stage_semgrep_test(
+            rule_path, test_file, staged_dir, rule_ids
+        )
         assert os.path.isfile(os.path.join(staged_dir, "rules.yml"))
-        assert os.path.isfile(merged)
-        content = Path(merged).read_text(encoding="utf-8")
+        assert staged_test == os.path.join(staged_dir, "rules.java")
+        content = Path(staged_test).read_text(encoding="utf-8")
         assert "ruleid:" in content.lower()
-        assert "TestSqlInjection" in content or "sql-injection" in content
+        assert "sql-injection" in content
+
+
+def test_filter_fixture_annotations_drops_foreign_rule_ids():
+    content = "\n".join([
+        "// ruleid: javascript.security.command-injection-exec",
+        "exec(userInput);",
+        "// ruleid: js.security.dom-xss-innerhtml",
+        "el.innerHTML = userInput;",
+        "// ok: javascript.security.command-injection-exec",
+        'exec("echo safe");',
+    ])
+    allowed = {"javascript.security.command-injection-exec"}
+    filtered = _rule_tester._filter_fixture_annotations(content, allowed)
+    assert "javascript.security.command-injection-exec" in filtered
+    assert "js.security.dom-xss-innerhtml" not in filtered
+    assert "exec(userInput)" in filtered
+    assert "el.innerHTML = userInput" in filtered
+
+
+def test_collect_matching_test_files_uses_annotation_intersection():
+    test_dir = os.path.join(RULES_DIR, "javascript", "tests")
+    js_rules = _rule_tester._load_rule_ids(
+        os.path.join(RULES_DIR, "javascript", "config-rules.yml")
+    )
+    matched = _rule_tester._collect_matching_test_files(test_dir, js_rules)
+    basenames = {os.path.basename(path) for path in matched}
+    assert "test_config_rules.js" in basenames
+    assert "test_command_injection.js" not in basenames
 
 
 def test_validate_rules_skip_if_no_semgrep():

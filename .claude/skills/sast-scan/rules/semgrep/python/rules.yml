@@ -12,8 +12,12 @@ rules:
       confidence: HIGH
       technology: [python]
     patterns:
-      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
       - pattern-not: subprocess.run("...", shell=True, ...)
+      - pattern-not: subprocess.call("...", shell=True, ...)
 
   - id: python.security.sql-injection-string-concat
     languages: [python]
@@ -30,7 +34,9 @@ rules:
     patterns:
       - pattern-either:
           - pattern: |
-              $CURSOR.execute(f"...{$VAR}...")
+              $CURSOR.execute(f"...")
+          - pattern: |
+              $CURSOR.execute("..." + $VAR)
           - pattern: |
               $CURSOR.execute("..." + $VAR + "...")
           - pattern: |
@@ -38,15 +44,24 @@ rules:
           - pattern: |
               $CURSOR.execute("...".format(...))
           - pattern: |
-              $CONN.execute(f"...{$VAR}...")
+              $CONN.execute(f"...")
+          - pattern: |
+              $CONN.execute("..." + $VAR)
           - pattern: |
               $CONN.execute("..." + $VAR + "...")
           - pattern: |
               $CONN.execute("..." % $VAR)
           - pattern: |
               $CONN.execute("...".format(...))
+          - pattern-regex: \.execute\(f["']
+          - pattern-regex: \.execute\([^)]*"[^"]*"\s*\+
+          - pattern-regex: \.execute\([^)]*"[^"]*"\s*%
       - pattern-not: |
           $CURSOR.execute("...", ...)
+      - pattern-not: |
+          $CURSOR.execute($SQL, $ARGS)
+      - pattern-not: |
+          $CONN.execute($SQL, $ARGS)
 
   - id: python.security.eval-usage
     languages: [python]
@@ -95,6 +110,7 @@ rules:
     patterns:
       - pattern: yaml.load(...)
       - pattern-not: yaml.load(..., Loader=yaml.SafeLoader)
+      - pattern-not: yaml.load(..., Loader=yaml.FullLoader)
 
   - id: python.security.hardcoded-secret-string
     languages: [python]
@@ -109,17 +125,7 @@ rules:
       confidence: MEDIUM
       technology: [python]
     patterns:
-      - pattern-either:
-          - pattern: |
-              $VAR = "...password..."
-          - pattern: |
-              $VAR = "...secret..."
-          - pattern: |
-              $VAR = "...api_key..."
-          - pattern: |
-              $VAR = "...apikey..."
-          - pattern: |
-              $VAR = "...token..."
+      - pattern-regex: (?i)(password|secret|api_key|apikey|token)\s*=\s*["'][^"']+["']
       - pattern-not: |
           $VAR = os.environ.get(...)
       - pattern-not: |
@@ -144,10 +150,10 @@ rules:
           - pattern: requests.put($URL, ...)
           - pattern: requests.delete($URL)
           - pattern: requests.head($URL)
-          - pattern: $SESSION.get($URL)
-          - pattern: $SESSION.post($URL, ...)
       - pattern-not: requests.get("...")
       - pattern-not: requests.post("...", ...)
+      - pattern-not: os.environ.get(...)
+      - pattern-not: os.getenv(...)
 
   - id: python.security.path-traversal
     languages: [python]
@@ -208,10 +214,7 @@ rules:
           - pattern: random.choice(...)
           - pattern: random.random()
           - pattern: random.uniform(...)
-      - pattern-not-inside: |
-          import random
-          ...
-          random.shuffle($LIST)
+      - pattern-not: random.shuffle(...)
 
   - id: python.security.timing-attack
     languages: [python]
@@ -226,12 +229,7 @@ rules:
       confidence: MEDIUM
       technology: [python]
     patterns:
-      - pattern-either:
-          - pattern: $SECRET == $VAR
-          - pattern: $VAR == $SECRET
-      - metavariable-regex:
-          metavariable: $SECRET
-          regex: "(?i)(password|token|secret|key|api_key|auth)"
+      - pattern-regex: (?i)\b(password|token|secret|api_key|auth)\w*\s*==\s*
       - pattern-not: hmac.compare_digest(...)
 
   - id: python.security.flask-debug
@@ -493,12 +491,7 @@ rules:
       confidence: HIGH
       technology: [python]
     patterns:
-      - pattern-either:
-          - pattern: DES.new(...)
-          - pattern: |
-              from Crypto.Cipher import DES
-          - pattern: |
-              from Cryptodome.Cipher import DES
+      - pattern: DES.new(...)
 
   - id: python.security.http-only-sensitive-query
     languages: [python]
@@ -536,12 +529,9 @@ rules:
       confidence: LOW
       technology: [python]
     patterns:
-      - pattern-inside: |
+      - pattern: |
           try:
               ...
-          except:
-              ...
-      - pattern: |
           except:
               ...
 

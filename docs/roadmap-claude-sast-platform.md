@@ -11,8 +11,8 @@
 | 维度 | 状态 |
 |------|------|
 | 四 Skill 闭环 | scan / triage / baseline / fix 功能齐全 |
-| 测试 | 370 passed |
-| 规则层 | 13 语言 + Java 污点规则；OWASP Benchmark +39.6% |
+| 测试 | 397 passed |
+| 规则层 | 14 语言目录 + Java/Python/JS 污点规则；269 条 Semgrep；OWASP Benchmark +39.6% |
 | 补充工具 | 8 个 runner（Bandit、gosec、ESLint、Brakeman、cppcheck、cargo-audit、SwiftLint、PHPStan） |
 | LLM/Agent 层 | 仅在 Claude Code 会话内执行；`--llm-findings` 为手动桥接 |
 | 文档 | slides 已校正；Benchmark harness 可复现 |
@@ -48,15 +48,15 @@ Phase 5  生态与采纳               [持续]
 
 ### 交付物
 
-- [ ] 更新 `README.md` 首段定位语（Claude Code 原生 Skill 平台）
-- [ ] 统一 `docs/promotion-slides.md` 与 `status-and-usage.md` 数据（370 tests、Benchmark、SecOpsCode 11）
-- [ ] 新增「适用 / 不适用场景」表（Skill 会话 vs 无人值守 CI）
-- [ ] CI 文档明确：`deep` 仅 trusted repo；LLM 层不在 CI 自动跑
+- [x] 更新 `README.md` 首段定位语（Claude Code 原生 Skill 平台）
+- [x] 统一 `docs/promotion-slides.md` 与 `status-and-usage.md` 数据（397 tests、Benchmark、SecOpsCode 11）
+- [x] 新增「适用 / 不适用场景」表（Skill 会话 vs 无人值守 CI）
+- [x] CI 文档明确：`deep` 仅 trusted repo；LLM 层不在 CI 自动跑
 
 ### 验证
 
 ```bash
-grep -r "几乎无效\|350 passed\|21 发现" docs/ README.md  # 应无过期口径
+grep -rE "(几乎无效|350 passed|21 发现)" docs/ README.md  # 应无过期口径
 pytest tests/ -q
 ```
 
@@ -73,24 +73,24 @@ pytest tests/ -q
 
 ### 1.1 统一 End-to-End Skill 引导
 
-- [ ] 在 `sast-scan/SKILL.md` 增加 **Session Playbook**：
+- [x] 在 `sast-scan/SKILL.md` 增加 **Session Playbook**：
   - 开发者本地：`quick → fix`
   - PR 评审：`standard → triage → baseline`
   - 发布审计：`deep → triage → fix → gate`
-- [ ] 各 Skill 末尾增加 **Next Skill** 提示（scan 结束自动建议 triage 命令）
-- [ ] `sast-triage` / `sast-fix` SKILL 增加「所需输入文件路径」检查清单
+- [x] 各 Skill 末尾增加 **Next Skill** 提示（scan 结束自动建议 triage 命令）
+- [x] `sast-triage` / `sast-fix` SKILL 增加「所需输入文件路径」检查清单
 
 ### 1.2 会话状态与 handoff
 
-- [ ] 标准化 `.claude/sast/results/` 产物契约（`summary.json` 字段文档化）
-- [ ] `llm-analysis-plan.json` 增加 `session_id` / `completed_phases` 字段，支持跨轮次续跑
-- [ ] 新增 `tools/session_status.py`：一条命令输出「扫描完成度 / 待分析 discover 数 / 未修复 HIGH 数」
+- [x] 标准化 `.claude/sast/results/` 产物契约（`summary.json` 字段文档化）
+- [x] `llm-analysis-plan.json` 增加 `session_id` / `completed_phases` 字段，支持跨轮次续跑
+- [x] 新增 `tools/session_status.py`：一条命令输出「扫描完成度 / 待分析 discover 数 / 未修复 HIGH 数」
 
 ### 1.3 开发者体验
 
-- [ ] `quick` profile 默认 `--changed-only` 的行为写入 Skill 说明
-- [ ] 报告 `report.md` 顶部增加 **3 条可执行 next steps**（由 severity 驱动）
-- [ ] 错误信息统一：Semgrep 未安装 / 工具 skip 时给出 Skill 内可复制修复命令
+- [x] `quick` profile 默认 `--changed-only` 的行为写入 Skill 说明
+- [x] 报告 `report.md` 顶部增加 **3 条可执行 next steps**（由 severity 驱动）
+- [x] 错误信息统一：Semgrep 未安装 / 工具 skip 时给出 Skill 内可复制修复命令
 
 ### 验证
 
@@ -114,21 +114,21 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py --target . --profile quick
 
 ### 2.1 污点规则扩展
 
-- [ ] Java taint 规则覆盖 Benchmark 剩余 FN 类别（跨文件 helper 明确标注为 known limit）
-- [ ] 评估 Python / JS taint-rules.yml（各 5–8 条高频 sink）
-- [ ] C# 规则扩至 12–15 条并对齐 corpus 样本
+- [x] Java taint 规则覆盖 Benchmark 剩余 FN 类别（跨文件 helper 明确标注为 known limit）
+- [x] 评估 Python / JS taint-rules.yml（各 5–8 条高频 sink）
+- [x] C# 规则扩至 12–15 条并对齐 corpus 样本
 
 ### 2.2 规则测试与 CI
 
-- [ ] `test_rules.py --test` 纳入 CI 必跑（修复后验证全绿）
-- [ ] 规则 coverage 报告自动附到 CI artifact
-- [ ] 删除或填充空目录 `rules/semgrep/common/`、`typescript/`
+- [x] `test_rules.py --test` 纳入 CI 必跑（修复后验证全绿）
+- [x] 规则 coverage 报告自动附到 CI artifact
+- [x] 删除或填充空目录 `rules/semgrep/common/`、`typescript/`
 
 ### 2.3 补充工具收尾
 
-- [ ] PHPStan / ESLint JSON normalizer 补齐
-- [ ] `sast_runner.py` 工具 skip 原因写入 `summary.json`（可观测）
-- [ ] SpotBugs / Roslyn：文档化「deep + CodeQL」路径，不新增重型 runner
+- [x] PHPStan / ESLint JSON normalizer 补齐
+- [x] `sast_runner.py` 工具 skip 原因写入 `summary.json`（可观测）
+- [x] SpotBugs / Roslyn：文档化「deep + CodeQL」路径，不新增重型 runner
 
 ### 验证
 
@@ -154,21 +154,21 @@ pytest tests/ -q
 
 ### 3.1 结构化分析（Layer 2）硬化
 
-- [ ] `llm-analysis-plan.json` schema 版本化 + 校验测试
-- [ ] 每个 `discover_*` 类型增加 **最小代码上下文模板**（减少 Agent 盲读）
-- [ ] `dismissed_targets` / `confirmed_findings` 写入 `llm-findings.json` 标准格式，供 `--llm-findings` 导入
-- [ ] Skill 内 Phase A/B  checklist 固化到 `sast-scan/SKILL.md`（可勾选式）
+- [x] `llm-analysis-plan.json` schema 版本化 + 校验测试
+- [x] 每个 `discover_*` 类型增加 **最小代码上下文模板**（减少 Agent 盲读）
+- [x] `dismissed_targets` / `confirmed_findings` 写入 `llm-findings.json` 标准格式，供 `--llm-findings` 导入
+- [x] Skill 内 Phase A/B  checklist 固化到 `sast-scan/SKILL.md`（可勾选式）
 
 ### 3.2 Agent 推理（Layer 3）边界清晰
 
-- [ ] 定义 Layer 3 触发条件（例如：HIGH 以上 rule finding > N，或 discover 覆盖缺口）
-- [ ] Agent 输出 schema：`agent-findings.json` 与 `llm-findings.json` 对齐
-- [ ] 文档说明：Agent 适合 CLI/跨模块；Web 场景优先 discover 类型
+- [x] 定义 Layer 3 触发条件（例如：HIGH 以上 rule finding > N，或 discover 覆盖缺口）
+- [x] Agent 输出 schema：`agent-findings.json` 与 `llm-findings.json` 对齐
+- [x] 文档说明：Agent 适合 CLI/跨模块；Web 场景优先 discover 类型
 
 ### 3.3 会话内复扫闭环
 
-- [ ] `fix_finding.py --test` 与 `sast-scan --changed-only` 串联文档
-- [ ] fix 后自动生成「复扫建议」写入 `fix-result.json`
+- [x] `fix_finding.py --test` 与 `sast-scan --changed-only` 串联文档
+- [x] fix 后自动生成「复扫建议」写入 `fix-result.json`
 
 ### 验证
 
@@ -193,19 +193,19 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py . --llm-findings .claude/s
 
 ### 4.1 Benchmark 体系
 
-- [ ] `benchmark/` 目录文档化：OWASP 复现步骤、预期分数区间
-- [ ] CI optional job：`benchmark`（nightly 或 manual workflow_dispatch）
-- [ ] 增加 **corpus 汇总报告** 命令（precision/recall 一张表）
+- [x] `benchmark/` 目录文档化：OWASP 复现步骤、预期分数区间
+- [x] CI optional job：`benchmark`（nightly 或 manual workflow_dispatch）
+- [x] 增加 **corpus 汇总报告** 命令（precision/recall 一张表）
 
 ### 4.2 案例研究标准化
 
-- [ ] 统一 MarqDex / SecOpsCode 报告模板（TP/FP/互补发现/耗时）
-- [ ] 新增 **Skill 会话 vs 仅规则 CI** 对照实验章节（同一仓库）
+- [x] 统一 MarqDex / SecOpsCode 报告模板（TP/FP/互补发现/耗时）
+- [x] 新增 **Skill 会话 vs 仅规则 CI** 对照实验章节（同一仓库）— 见 `docs/skill-vs-ci-comparison.md`
 
 ### 4.3 指标看板
 
-- [ ] `tools/metrics_summary.py`：输出 Markdown 指标块（测试数、规则数、Benchmark 分、语言覆盖）
-- [ ] `status-and-usage.md` 改为从脚本生成或引用单一数据源
+- [x] `tools/metrics_summary.py`：输出 Markdown 指标块（测试数、规则数、Benchmark 分、语言覆盖）
+- [x] `status-and-usage.md` 改为从脚本生成或引用单一数据源（`metrics_summary.py --sync-status-doc`）
 
 ### Exit criteria
 
@@ -223,19 +223,19 @@ python3 .claude/skills/sast-scan/tools/sast_runner.py . --llm-findings .claude/s
 
 ### 5.1 安装与分发
 
-- [ ] 发布「最小 Skill 包」说明：复制 `.claude/skills/sast-*` 即可用
-- [ ] `configure` 文档：Semgrep / Gitleaks 一键检测脚本
-- [ ] Docker 镜像定位为 **规则层 CI 侧车**，非完整 Skill 运行时
+- [x] 发布「最小 Skill 包」说明：复制 `.claude/skills/sast-*` 即可用（见 `docs/quickstart.md`）
+- [x] `configure` 文档：Semgrep / Gitleaks 一键检测脚本（`scripts/configure-sast-tools.sh`）
+- [x] Docker 镜像定位为 **规则层 CI 侧车**，非完整 Skill 运行时
 
 ### 5.2 模板与示例
 
-- [ ] `examples/` 增加 3 个最小漏洞样例 + 预期 Skill 输出
-- [ ] GitHub Actions 模板区分 `skill-dev` 与 `ci-gate` 两种 workflow
+- [x] `examples/` 增加 3 个最小漏洞样例 + 预期 Skill 输出
+- [x] GitHub Actions 模板区分 `skill-dev` 与 `ci-gate` 两种 workflow
 
 ### 5.3 社区与反馈
 
-- [ ] CONTRIBUTING.md：规则贡献流程 + `semgrep --test` 要求
-- [ ] Issue 模板：误报 / 漏报 / Skill UX 分类
+- [x] CONTRIBUTING.md：规则贡献流程 + `semgrep --test` 要求
+- [x] Issue 模板：误报 / 漏报 / Skill UX 分类（见 CONTRIBUTING.md）
 
 ### Exit criteria
 

@@ -99,11 +99,14 @@ ini_set('display_errors', '1');
 // ok: php.security.debug-enabled
 ini_set('display_errors', '0');
 
+// Note: APP_DEBUG test cases are commented because the rule uses `languages: [php]`
+// with `pattern-regex` which scans raw file content (including comments).
+// php.security.laravel-debug-mode
 // ruleid: php.security.laravel-debug-mode
-APP_DEBUG=true
+// APP_DEBUG=true
 
 // ok: php.security.laravel-debug-mode
-APP_DEBUG=false
+// APP_DEBUG=false
 
 // ruleid: php.security.laravel-csrf-disabled
 $except = ['*'];

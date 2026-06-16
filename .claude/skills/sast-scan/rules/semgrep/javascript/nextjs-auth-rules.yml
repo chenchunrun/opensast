@@ -15,18 +15,18 @@ rules:
       - pattern-either:
           - pattern: |
               export async function POST($REQ: Request, ...) { ... }
-          - pattern: |
-              export async function PUT($REQ: Request, ...) { ... }
-          - pattern: |
-              export async function DELETE($REQ: Request, ...) { ... }
-          - pattern: |
-              export async function PATCH($REQ: Request, ...) { ... }
-      - pattern-not: |
-          checkCsrf(...)
-      - pattern-not: |
-          csrfToken(...)
-      - pattern-not: |
-          checkCsrf($REQ)
+      - pattern-not-inside: |
+          export async function POST($REQ: Request, ...) {
+            ...
+            checkCsrf(...)
+            ...
+          }
+      - pattern-not-inside: |
+          export async function POST($REQ: Request, ...) {
+            ...
+            csrfToken(...)
+            ...
+          }
 
   - id: nextjs.validation.missing-zod-parse
     languages: [javascript, typescript]
@@ -44,11 +44,29 @@ rules:
       - pattern: |
           await $REQ.json()
       - pattern-not-inside: |
-          $SCHEMA.safeParse(...)
+          export async function $FN(...) {
+            ...
+            await $REQ.json()
+            ...
+            $SCHEMA.safeParse(...)
+            ...
+          }
       - pattern-not-inside: |
-          $SCHEMA.parse(...)
+          export async function $FN(...) {
+            ...
+            await $REQ.json()
+            ...
+            $SCHEMA.parse(...)
+            ...
+          }
       - pattern-not-inside: |
-          $SCHEMA.validate(...)
+          export async function $FN(...) {
+            ...
+            await $REQ.json()
+            ...
+            $SCHEMA.validate(...)
+            ...
+          }
       - pattern-not: |
           z.object(...)
 

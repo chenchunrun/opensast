@@ -107,8 +107,9 @@ public class TestMiscSecurity extends HttpServlet {
         request.getFile("upload");
 
         // ok: java.security.multipart-upload
-        if (file.getSize() > 1024) { return; }
-        request.getFile("upload");
+        if (file.getSize() > 1024) {
+            request.getFile("upload");
+        }
 
         // ruleid: java.security.hardcoded-jdbc-password
         DriverManager.getConnection(url, "user", "pass123");

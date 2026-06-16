@@ -69,8 +69,8 @@ func vulnerable(user: SessionState, password: String, token: String) {
     // ok: swift.security.logging-sensitive
     print("request finished")
 
-    // ruleid: swift.security.debug-logging
     #if DEBUG
+    // ruleid: swift.security.debug-logging
     print(password)
     #endif
 

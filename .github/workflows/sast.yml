@@ -40,11 +40,18 @@ jobs:
           tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
           gitleaks version
 
-      - name: Validate custom SAST rules
+      - name: Validate and test custom SAST rules
         run: |
+          set -e
+          mkdir -p .claude/sast/results
           python3 .claude/skills/sast-scan/tools/test_rules.py \
             --rules-dir .claude/skills/sast-scan/rules/semgrep \
+            --test \
             --coverage-report .claude/sast/results/rule-coverage.json
+          test -f .claude/sast/results/rule-coverage.json || {
+            echo "ERROR: rule-coverage.json was not generated — rules test failed"
+            exit 1
+          }
 
       - name: Run full test suite
         run: pytest -q tests/

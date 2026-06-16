@@ -20,7 +20,15 @@ rules:
           - pattern: |
               exec("..." + $VAR + "...")
           - pattern: |
+              exec("..." + $VAR)
+          - pattern: |
               execSync("..." + $VAR + "...")
+          - pattern: |
+              execSync("..." + $VAR)
+          - pattern-regex: |
+              exec(?:Sync)?\(`[^`]*\$\{
+          - pattern-regex: |
+              exec(?:Sync)?\("[^"]*"\s*\+\s*\w+
           - pattern: |
               require('child_process').exec(`...${...}...`)
           - pattern: |
@@ -28,7 +36,11 @@ rules:
           - pattern: |
               require('child_process').exec("..." + $VAR + "...")
           - pattern: |
+              require('child_process').exec("..." + $VAR)
+          - pattern: |
               require('child_process').execSync("..." + $VAR + "...")
+          - pattern: |
+              require('child_process').execSync("..." + $VAR)
       - pattern-not: |
           exec("...")
       - pattern-not: |
@@ -57,11 +69,19 @@ rules:
           - pattern: |
               $CONN.query("..." + $VAR + "...")
           - pattern: |
+              $CONN.query("..." + $VAR)
+          - pattern-regex: |
+              \.query\(`[^`]*\$\{
+          - pattern-regex: |
+              \.query\("[^"]*"\s*\+\s*\w+
+          - pattern: |
               $CONN.query("...", function(...) {...})
           - pattern: |
               $CONN.execute(`...${...}...`)
           - pattern: |
               $CONN.execute("..." + $VAR + "...")
+          - pattern: |
+              $CONN.execute("..." + $VAR)
           - pattern: |
               $CONN.$queryRawUnsafe(`...${...}...`)
           - pattern: |
@@ -94,7 +114,15 @@ rules:
           - pattern: |
               $RES.send("..." + $VAR + "...")
           - pattern: |
+              $RES.send("..." + $VAR)
+          - pattern: |
               $RES.write("..." + $VAR + "...")
+          - pattern: |
+              $RES.write("..." + $VAR)
+          - pattern-regex: |
+              \.(?:send|write)\(`[^`]*\$\{
+          - pattern-regex: |
+              \.(?:send|write)\("[^"]*"\s*\+\s*\w+
       - pattern-not: |
           $RES.send(escapeHtml(...))
       - pattern-not: |
@@ -117,11 +145,21 @@ rules:
           - pattern: |
               $FS.readFile(`...${...}...`)
           - pattern: |
+              $FS.readFile(`...${...}...`, ...)
+          - pattern: |
               $FS.readFile("..." + $VAR + "...")
+          - pattern: |
+              $FS.readFile("..." + $VAR)
           - pattern: |
               $FS.readFileSync(`...${...}...`)
           - pattern: |
               $FS.readFileSync("..." + $VAR + "...")
+          - pattern: |
+              $FS.readFileSync("..." + $VAR)
+          - pattern-regex: |
+              readFile(?:Sync)?\(`[^`]*\$\{
+          - pattern-regex: |
+              readFile(?:Sync)?\("[^"]*"\s*\+\s*\w+
           - pattern: |
               $FS.writeFile(`...${...}...`, ...)
           - pattern: |
@@ -164,15 +202,19 @@ rules:
           - pattern: |
               axios.post($USER_INPUT, ...)
           - pattern: |
+              $CLIENT.get($USER_INPUT)
+          - pattern: |
               http.get($USER_INPUT, ...)
           - pattern: |
               https.get($USER_INPUT, ...)
       - pattern-not: |
           fetch("...")
       - pattern-not: |
+          fetch(`...`)
+      - pattern-not: |
           axios.get("...")
-      - pattern-not-regex: |
-          fetch\(\s*`[^`]*\$\{[^}]*\}[^`]*`\s*\)
+      - pattern-not: |
+          $CLIENT.get("...")
 
   - id: javascript.security.open-redirect
     languages: [javascript, typescript]
@@ -198,6 +240,12 @@ rules:
           $RES.redirect("...")
       - pattern-not: |
           NextResponse.redirect(new URL("...", ...))
+      - pattern-not: |
+          NextResponse.redirect(`...`)
+      - pattern-not: |
+          Response.redirect(`...`)
+      - pattern-not: |
+          $RES.redirect(`...`)
 
   - id: javascript.security.insecure-random
     languages: [javascript, typescript]
@@ -215,11 +263,15 @@ rules:
       - pattern: Math.random()
       - pattern-either:
           - pattern-inside: |
-              $ID = `...${...}...`
+              $VAR = Math.random()
           - pattern-inside: |
-              $ID = $VAR + "..."
+              $VAR = Math.random().toString(...)
           - pattern-inside: |
-              $ID = $VAR.toString(...)
+              `...${Math.random()}...`
+          - pattern-inside: |
+              $VAR = ... + Math.random().toString(...)
+          - pattern-inside: |
+              $VAR = Math.random().toString(...) + ...
       - pattern-not-inside: |
           if (Math.random() < $VAL) { ... }
       - pattern-not-inside: |
@@ -238,23 +290,7 @@ rules:
       confidence: MEDIUM
       technology: [javascript, typescript, nodejs]
     patterns:
-      - pattern-either:
-          - pattern: |
-              $SECRET === $VAR
-          - pattern: |
-              $VAR === $SECRET
-          - pattern: |
-              $SECRET !== $VAR
-          - pattern: |
-              $VAR !== $SECRET
-          - pattern: |
-              $TOKEN !== $EXPECTED
-      - metavariable-regex:
-          metavariable: $SECRET
-          regex: "(?i)(password|token|secret|key|api_key|auth)"
-      - metavariable-regex:
-          metavariable: $TOKEN
-          regex: "(?i)(token|secret|key)"
+      - pattern-regex: (?i)\b(password|token|secret|api_key|auth)\w*\s*(===|!==)\s*
       - pattern-not: |
           crypto.timingSafeEqual(...)
 
@@ -402,20 +438,8 @@ rules:
       confidence: MEDIUM
       technology: [javascript, typescript, nodejs]
     patterns:
-      - pattern-either:
-          - pattern: |
-              const $VAR = "...password..."
-          - pattern: |
-              const $VAR = "...secret..."
-          - pattern: |
-              const $VAR = "...api_key..."
-          - pattern: |
-              const $VAR = "...apikey..."
-          - pattern: |
-              const $VAR = "...token..."
-          - pattern: |
-              const $VAR = "...private_key..."
+      - pattern-regex: (?i)(password|secret|api_key|apikey|token|private_key)\w*\s*=\s*["'][^"']+["']
       - pattern-not: |
           const $VAR = process.env.$VAR2
       - pattern-not: |
-          const $VAR = "..."
+          const $VAR = process.env[...]

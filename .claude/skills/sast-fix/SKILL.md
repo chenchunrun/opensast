@@ -20,6 +20,19 @@ Generate, apply, and verify security fixes for specific SAST findings using a th
 2. **Phase B — LLM Custom Fix** — Claude-generated fix for non-template or complex vulns
 3. **Phase C — Verify** — targeted re-scan + validation + optional test generation
 
+## Required input files
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `.claude/sast/results/findings.json` | Yes (or `llm-findings.json`) | Lookup finding by id/fingerprint |
+| `.claude/sast/results/summary.json` | Optional | Scan profile context |
+
+Resolve the target fingerprint from triage output or:
+
+```bash
+python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results
+```
+
 ## Input
 
 User arguments:
@@ -207,7 +220,7 @@ Only when the user provides explicit permission:
 - Severity: CRITICAL/HIGH/MEDIUM/LOW
 - Confidence: ...
 - File: path/to/file:line
-- CWE: CWE-XXX
+- CWE: CWE-<ID> (e.g., CWE-89 for SQL Injection)
 - Phase: A/B/C
 
 ## Analysis
@@ -248,3 +261,12 @@ When fixing:
 
 - **Input from**: `/sast-scan` findings, `/sast-triage` prioritized findings
 - **Output to**: Git commit, test suite, `/sast-baseline` suppression (if fix is deferred)
+
+## Next Skill (required at end of fix response)
+
+```markdown
+## Next steps
+1. **Verify:** re-run with `--test` if not already done
+2. **Quick re-scan:** `/sast-scan --changed-only --profile quick`
+3. **Defer risk:** `/sast-baseline suppress --fingerprint <fp> --reason "accepted risk"`
+```

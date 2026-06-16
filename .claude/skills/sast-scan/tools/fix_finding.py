@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -795,6 +796,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # Validate identifier: reject shell metacharacters to prevent injection
+    # into command suggestions or downstream consumers
+    _SHELL_DANGEROUS_RE = re.compile(r"[;&|`$(){}[\]!<>\\'\"]")
+    if _SHELL_DANGEROUS_RE.search(args.identifier):
+        parser.error(f"identifier contains disallowed characters: {args.identifier}")
+
     findings = load_findings(args.findings)
     finding = find_finding(findings, args.identifier)
     if not finding:
@@ -837,6 +844,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.generate_test:
         stub = generate_test_stub(finding, repo_root)
         report["test_stub"] = stub.get("test_code", "")
+
+    fix_result = {
+        "fingerprint": finding.get("fingerprint"),
+        "finding_id": finding.get("id"),
+        "phase": report.get("phase", args.phase),
+        "applied": bool(report.get("apply_info", {}).get("applied")),
+        "validation": report.get("validation"),
+        "rerun": rerun_result,
+        "rescan_suggestion": (
+            "/sast-scan --changed-only --profile quick"
+            if rerun_result
+            else f"python3 {os.path.relpath(__file__, repo_root)} {finding.get('fingerprint', args.identifier)} --test"
+        ),
+    }
+    results_dir = os.path.join(repo_root, ".claude", "sast", "results")
+    os.makedirs(results_dir, exist_ok=True)
+    fix_result_path = os.path.join(results_dir, "fix-result.json")
+    with open(fix_result_path, "w", encoding="utf-8") as f:
+        json.dump(fix_result, f, indent=2, ensure_ascii=False)
 
     rendered = render_markdown(report) if args.output == "markdown" else json.dumps(report, indent=2, ensure_ascii=False)
     if args.output_file:

@@ -29,12 +29,14 @@ from normalize_findings import (
 )
 from redact import redact_findings, redact_markdown, redact_sarif
 from report_writer import (
+    build_report_next_steps,
     generate_claude_summary,
     generate_html_report,
     generate_json_summary,
     generate_markdown_report,
     summarize_analysis_enrichment,
 )
+from tool_diagnostics import collect_tool_outcomes
 from run_bandit import run_bandit
 from run_brakeman import run_brakeman
 from run_cargo_audit import run_cargo_audit
@@ -296,7 +298,6 @@ def run(args: argparse.Namespace) -> int:
 
     tools_config = profile.get("tools", {})
     tool_timeout = args.tool_timeout or config.get("tools", {}).get("semgrep", {}).get("timeout", 300)
-    tool_errors: list[dict] = []
     scan_results: list[dict] = []
 
     if tools_config.get("semgrep", True) or (not tools_config and profile_name != "quick"):
@@ -312,7 +313,6 @@ def run(args: argparse.Namespace) -> int:
         )
         scan_results.append(result)
         if not result["success"]:
-            tool_errors.append({"tool": "semgrep", "error": result.get("error_message", "unknown")})
             logger.warning("Semgrep: %s", result.get("error_message", "failed"))
 
     if tools_config.get("gitleaks", True):
@@ -320,7 +320,6 @@ def run(args: argparse.Namespace) -> int:
         result = run_gitleaks(scan_target, output_dir, timeout=tool_timeout)
         scan_results.append(result)
         if not result["success"]:
-            tool_errors.append({"tool": "gitleaks", "error": result.get("error_message", "unknown")})
             logger.warning("Gitleaks: %s", result.get("error_message", "failed"))
 
     if tools_config.get("checkov", False) and project.get("iac_files"):
@@ -328,7 +327,6 @@ def run(args: argparse.Namespace) -> int:
         result = run_checkov(scan_target, output_dir, timeout=tool_timeout)
         scan_results.append(result)
         if not result["success"]:
-            tool_errors.append({"tool": "checkov", "error": result.get("error_message", "unknown")})
             logger.warning("Checkov: %s", result.get("error_message", "failed"))
 
     if tools_config.get("codeql", False):
@@ -347,7 +345,6 @@ def run(args: argparse.Namespace) -> int:
         )
         scan_results.append(result)
         if not result["success"]:
-            tool_errors.append({"tool": "codeql", "error": result.get("error_message", "unknown")})
             logger.warning("CodeQL: %s", result.get("error_message", "failed"))
 
     if "python" in detected_languages:
@@ -355,7 +352,6 @@ def run(args: argparse.Namespace) -> int:
         result = run_bandit(scan_target, output_dir, timeout=tool_timeout)
         scan_results.append(result)
         if not result["success"]:
-            tool_errors.append({"tool": "bandit", "error": result.get("error_message", "unknown")})
             logger.warning("Bandit: %s", result.get("error_message", "failed"))
 
     if "go" in detected_languages:
@@ -375,7 +371,6 @@ def run(args: argparse.Namespace) -> int:
             result = run_gosec(scan_target, output_dir, timeout=tool_timeout)
         scan_results.append(result)
         if not result["success"]:
-            tool_errors.append({"tool": "gosec", "error": result.get("error_message", "unknown")})
             logger.warning("gosec: %s", result.get("error_message", "failed"))
 
     if detected_languages & {"javascript", "typescript"}:
@@ -500,6 +495,7 @@ def run(args: argparse.Namespace) -> int:
     blocking_count = gate_result.get("blocking_count", 0)
 
     tools_executed = [r["tool"] for r in scan_results if r.get("success")]
+    tool_outcomes = collect_tool_outcomes(scan_results)
     elapsed = round(time.time() - start_time, 1)
 
     summary = {
@@ -513,7 +509,8 @@ def run(args: argparse.Namespace) -> int:
         "blocking_findings": blocking_count,
         "severity_counts": severity_counts,
         "gate_result": gate_result,
-        "tool_errors": tool_errors,
+        "tool_outcomes": tool_outcomes,
+        "tool_errors": tool_outcomes,
         "analysis_enrichment": summarize_analysis_enrichment(all_findings),
     }
     triage_counts = summary["analysis_enrichment"].get("by_triage", {})
@@ -563,6 +560,8 @@ def run(args: argparse.Namespace) -> int:
         if len(scan_history) >= 2:
             from trend_analysis import compute_trend_metrics
             summary["trend_analysis"] = compute_trend_metrics(scan_history)
+
+    summary["next_steps"] = build_report_next_steps(summary, all_findings)
 
     logger.info("Generating reports...")
     try:

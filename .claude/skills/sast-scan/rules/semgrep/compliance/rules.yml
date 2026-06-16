@@ -38,15 +38,12 @@ rules:
       confidence: MEDIUM
       technology: [javascript, typescript]
       compliance: ["GB/T 35273-2020 5.5"]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              fetch("http://...", {body: JSON.stringify({email: ...})})
-          - pattern: |
-              axios.post("http://...", {id_card: ...})
+    pattern-either:
+      - pattern-regex: fetch\s*\(\s*"http://
+      - pattern-regex: axios\.post\s*\(\s*"http://
 
   - id: gbt35273.logging-personal-data
-    languages: [python, javascript, typescript, java]
+    languages: [python]
     severity: WARNING
     message: "Personal data logged to files. Avoid logging PII per GB/T 35273 10.1."
     metadata:
@@ -56,15 +53,12 @@ rules:
       owasp:
         - "A09:2021-Security Logging and Monitoring Failures"
       confidence: MEDIUM
-      technology: [python, javascript, typescript, java, go]
+      technology: [python]
       compliance: ["GB/T 35273-2020 10.1"]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              $LOGGER.info(..., email=..., ...)
-          - pattern: |
-              $LOGGER.info(..., phone=..., ...)
-          - pattern: |
-              $LOGGER.info(..., id_card=..., ...)
-          - pattern: |
-              logging.info(..., email=..., ...)
+    pattern-either:
+      - pattern: $LOGGER.info(..., email=..., ...)
+      - pattern: $LOGGER.info(..., phone=..., ...)
+      - pattern: $LOGGER.info(..., id_card=..., ...)
+      - pattern: logging.info(..., email=..., ...)
+      - pattern: logging.info(..., phone=..., ...)
+      - pattern: logging.info(..., id_card=..., ...)

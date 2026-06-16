@@ -4,8 +4,7 @@ const schema = z.object({ name: z.string() })
 
 // ruleid: nextjs.auth.missing-csrf-post
 export async function POST(req: Request) {
-  const body = await req.json()
-  return Response.json(body)
+  return Response.json({ ok: true })
 }
 
 // ok: nextjs.auth.missing-csrf-post
@@ -14,8 +13,8 @@ export async function DELETE(req: Request) {
   return Response.json({ ok: true })
 }
 
-// ruleid: nextjs.validation.missing-zod-parse
 export async function PUT(req: Request) {
+  // ruleid: nextjs.validation.missing-zod-parse
   const body = await req.json()
   return Response.json(body)
 }

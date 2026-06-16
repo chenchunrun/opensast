@@ -135,21 +135,16 @@ rules:
       confidence: MEDIUM
       technology: [javascript, typescript, express, nodejs]
     patterns:
-      - pattern-either:
-          - pattern-inside: |
-              function $HANDLER(..., $REQ, $RES, ...) {
-                  ...
-              }
-          - pattern-inside: |
-              $APP.$METHOD($PATH, function $HANDLER(..., $REQ, $RES, ...) {
-                  ...
-              })
+      - pattern-inside: |
+          $APP.$METHOD($PATH, function $HANDLER(..., $REQ, $RES, ...) {
+            ...
+          })
       - metavariable-regex:
           metavariable: $PATH
-          regex: "(?i)(register|login|reset-password|forgot-password|verify-email|signin|signup|auth)"
-      - pattern-not: |
+          regex: "(?i).*(register|login|reset-password|forgot-password|verify-email|signin|signup|auth).*"
+      - pattern-not-inside: |
           rateLimit(...)
-      - pattern-not: |
+      - pattern-not-inside: |
           checkRateLimit(...)
-      - pattern-not: |
+      - pattern-not-inside: |
           rateLimiter(...)

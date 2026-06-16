@@ -19,6 +19,22 @@ Triage SAST scan results through a three-phase process:
 2. **Phase B — LLM Validate** — validate each finding as TP/FP with confidence scoring and code context
 3. **Phase C — Recommend** — generate fix priorities, suppressions for confirmed FPs, and export to baseline
 
+## Required input files
+
+Before triage, confirm these exist:
+
+| File | Required | Purpose |
+|------|----------|---------|
+| `.claude/sast/results/findings.json` | Yes (or `llm-findings.json`) | Findings to triage |
+| `.claude/sast/results/summary.json` | Recommended | Scan context / severity counts |
+| `.claude/sast/baseline.json` | Optional | Existing suppressions |
+
+Check session progress:
+
+```bash
+python3 .claude/skills/sast-scan/tools/session_status.py --results .claude/sast/results
+```
+
 ## Input
 
 User arguments:
@@ -153,3 +169,12 @@ When evaluating false positives, consider:
 - **Input from**: `/sast-scan` findings (both rule-based and LLM-generated)
 - **Output to**: `/sast-baseline` (suppressions), `/sast-fix` (prioritized findings)
 - **Workflow**: scan → triage → fix → verify
+
+## Next Skill (required at end of triage response)
+
+```markdown
+## Next steps
+1. **Suppress FPs:** `/sast-baseline suppress --fingerprint <fp> --reason "..."` or `--export-baseline` from triage
+2. **Fix TPs:** `/sast-fix <fingerprint> --test`
+3. **Re-scan:** `/sast-scan --changed-only --profile quick`
+```
