@@ -1,0 +1,164 @@
+# NIST SP 800-53 Rev 5 — Security and Privacy Controls
+# Code-detectable patterns for moderate/high-baseline control families.
+# Complements ISO 27001 Annex A with US federal system controls.
+
+rules:
+  # AC-3 — Access Enforcement (least privilege / no default allow)
+  - id: nist800-53.ac3-access-enforcement
+    languages: [javascript, typescript, python, java, php, ruby]
+    severity: WARNING
+    message: "Access control check missing or bypassed by environment check. NIST 800-53 AC-3 requires access enforcement."
+    metadata:
+      category: compliance
+      cwe: ["CWE-862"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [javascript, typescript, python, java, php, ruby]
+      compliance: ["NIST 800-53 AC-3"]
+    pattern-either:
+      - pattern: |
+          if (process.env.NODE_ENV !== "production") { return ...; }
+      - pattern: |
+          if (process.env.NODE_ENV !== "production") { next(); }
+      - pattern: |
+          if (getenv("APP_ENV") === "development") { return true; }
+
+  # AC-7 — Unsuccessful Login Attempts (no rate limiting on auth)
+  - id: nist800-53.ac7-no-rate-limiting
+    languages: [javascript, typescript, python, java, php, ruby]
+    severity: WARNING
+    message: "Authentication endpoint without rate limiting. NIST 800-53 AC-7 requires account lockout after failed attempts."
+    metadata:
+      category: compliance
+      cwe: ["CWE-307"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+      confidence: MEDIUM
+      technology: [javascript, typescript, python, java, php, ruby]
+      compliance: ["NIST 800-53 AC-7"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $APP.post("/login", ...)
+          - pattern: |
+              $APP.post("/auth", ...)
+          - pattern: |
+              @$APP.post("/login")
+          - pattern: |
+              @$APP.post("/signin")
+      - pattern-not-inside: |
+          ...
+          rateLimit(...)
+          ...
+
+  # AU-2 — Audit Events (no security logging)
+  - id: nist800-53.au2-no-audit-log
+    languages: [python, javascript, typescript, java]
+    severity: INFO
+    message: "Security-sensitive operation without audit logging. NIST 800-53 AU-2 requires audit record generation."
+    metadata:
+      category: compliance
+      cwe: ["CWE-778"]
+      owasp: ["A09:2021-Security Logging and Monitoring Failures"]
+      confidence: LOW
+      technology: [python, javascript, typescript, java]
+      compliance: ["NIST 800-53 AU-2"]
+    patterns:
+      - pattern-either:
+          - pattern: $APP.post("/api/...", ...)
+          - pattern: |
+              def delete_$X(...):
+                  ...
+      - pattern-not-inside: |
+          ...
+          logger.audit(...)
+          ...
+
+  # CM-6 — Configuration Settings (debug mode / verbose errors)
+  - id: nist800-53.cm6-debug-config
+    languages: [python, javascript, typescript, java, php, ruby, csharp]
+    severity: WARNING
+    message: "Debug configuration or verbose error reporting detected. NIST 800-53 CM-6 requires secure baseline configurations."
+    metadata:
+      category: compliance
+      cwe: ["CWE-215"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: MEDIUM
+      technology: [python, javascript, typescript, java, php, ruby, csharp]
+      compliance: ["NIST 800-53 CM-6"]
+    pattern-either:
+      - pattern: DEBUG = True
+      - pattern: |
+          debug: true
+      - pattern: NODE_ENV=development
+      - pattern: |
+          <customErrors mode="Off"
+      - pattern: app.run(..., debug=True, ...)
+
+  # IA-5 — Authenticator Management (hardcoded secrets / no MFA)
+  - id: nist800-53.ia5-hardcoded-authenticator
+    languages: [python, javascript, typescript, java, php, ruby, go, csharp]
+    severity: ERROR
+    message: "Hardcoded authenticator (password/secret/key) detected. NIST 800-53 IA-5 requires proper authenticator management."
+    metadata:
+      category: compliance
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+      confidence: HIGH
+      technology: [python, javascript, typescript, java, php, ruby, go, csharp]
+      compliance: ["NIST 800-53 IA-5(1)"]
+    pattern-regex: |-
+      (?i)(?:password|secret|api_key|apikey|token|private_key|credential)\s*[:=]\s*["'][\S]{6,}["']
+
+  # SC-8 — Transmission Confidentiality (no TLS / HTTP)
+  - id: nist800-53.sc8-no-tls
+    languages: [javascript, typescript, python, java]
+    severity: WARNING
+    message: "Network communication over plain HTTP. NIST 800-53 SC-8 requires transmission confidentiality and integrity."
+    metadata:
+      category: compliance
+      cwe: ["CWE-319"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+      confidence: MEDIUM
+      technology: [javascript, typescript, python, java]
+      compliance: ["NIST 800-53 SC-8"]
+    pattern-either:
+      - pattern-regex: |-
+          (?:fetch|axios\.(?:get|post)|requests\.(?:get|post|put|delete))\s*\(\s*["']http://
+      - pattern-regex: |-
+          \.createConnection\s*\(\s*\{\s*(?!.*\bssl\s*:\s*true)
+
+  # SC-13 — Cryptographic Protection (weak algorithms)
+  - id: nist800-53.sc13-weak-crypto
+    languages: [python, javascript, typescript, java, php, ruby]
+    severity: ERROR
+    message: "Weak cryptographic algorithm used. NIST 800-53 SC-13 requires FIPS-validated cryptography."
+    metadata:
+      category: compliance
+      cwe: ["CWE-327"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+      confidence: HIGH
+      technology: [python, javascript, typescript, java, php, ruby]
+      compliance: ["NIST 800-53 SC-13"]
+    pattern-either:
+      - pattern-regex: \bhashlib\.md5\s*\(
+      - pattern-regex: \bhashlib\.sha1\s*\(
+      - pattern-regex: \bCryptoJS\.MD5\s*\(
+      - pattern-regex: |-
+          \bMessageDigest\.getInstance\s*\(\s*"MD5
+      - pattern-regex: \bmd5\s*\(\s*\$pass
+
+  # SI-4 — System Monitoring (no security event detection)
+  - id: nist800-53.si4-no-monitoring
+    languages: [python, javascript, typescript, java]
+    severity: INFO
+    message: "No security event monitoring detected in application code. NIST 800-53 SI-4 requires system monitoring."
+    metadata:
+      category: compliance
+      cwe: ["CWE-778"]
+      owasp: ["A09:2021-Security Logging and Monitoring Failures"]
+      confidence: LOW
+      technology: [python, javascript, typescript, java]
+      compliance: ["NIST 800-53 SI-4"]
+    pattern-either:
+      - pattern-regex: 'logging\.info\(.*(?:login|auth|permission|access|delete|admin)'
+      - pattern-regex: 'logger\.info\(.*(?:login|auth|permission|access|delete|admin)'

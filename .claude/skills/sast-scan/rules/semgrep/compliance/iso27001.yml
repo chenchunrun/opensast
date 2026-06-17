@@ -1,0 +1,96 @@
+# ISO 27001:2022 Annex A Controls — Code-detectable patterns
+# Covers controls from Annex A that have source-code-relevant indicators.
+# These rules complement SOC 2 and PCI-DSS compliance coverage.
+
+rules:
+  # A.8.8 — Technical vulnerability management (unpatched/vulnerable imports)
+  - id: iso27001.a8-8-vulnerable-dependency
+    languages: [generic]
+    severity: WARNING
+    message: "Potentially vulnerable dependency version. ISO 27001 A.8.8 requires vulnerability management."
+    metadata:
+      category: compliance
+      cwe: ["CWE-1104"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+      confidence: MEDIUM
+      technology: [python, javascript, typescript]
+      compliance: ["ISO 27001:2022 A.8.8"]
+    pattern-either:
+      - pattern-regex: '"lodash"\s*:\s*"[\^~]?[0-4]\.'
+      - pattern-regex: '"express"\s*:\s*"[\^~]?[0-3]\.'
+      - pattern-regex: flask\s*=\s*"[\^~]?[01]\.
+      - pattern-regex: Django\s*=\s*"[\^~]?[012]\.
+
+  # A.8.9 — Configuration management (no debug in production)
+  - id: iso27001.a8-9-production-debug
+    languages: [python, javascript, typescript, php, ruby, java, csharp]
+    severity: WARNING
+    message: "Debug mode or detailed error reporting enabled. ISO 27001 A.8.9 requires secure configurations."
+    metadata:
+      category: compliance
+      cwe: ["CWE-215"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: HIGH
+      technology: [python, javascript, typescript, php, ruby, java, csharp]
+      compliance: ["ISO 27001:2022 A.8.9"]
+    pattern-either:
+      - pattern: |
+          DEBUG = True
+      - pattern: app.run(..., debug=True, ...)
+      - pattern: |
+          debug: true
+      - pattern: |
+          APP_DEBUG = true
+
+  # A.8.12 — Data leakage prevention (secrets in code)
+  - id: iso27001.a8-12-hardcoded-secrets
+    languages: [python, javascript, typescript, java, php, ruby, go, csharp]
+    severity: ERROR
+    message: "Hardcoded credential detected. ISO 27001 A.8.12 requires data leakage prevention including credential protection."
+    metadata:
+      category: compliance
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+      confidence: HIGH
+      technology: [python, javascript, typescript, java, php, ruby, go, csharp]
+      compliance: ["ISO 27001:2022 A.8.12"]
+    pattern-regex: |-
+      (?i)(?:password|secret|api_key|apikey|token|auth_key)\s*[:=]\s*["'][\S]{8,}["']
+
+  # A.8.26 — Application security requirements (input validation)
+  - id: iso27001.a8-26-missing-input-validation
+    languages: [python, javascript, typescript, java, php]
+    severity: WARNING
+    message: "User input passed directly to dangerous function. ISO 27001 A.8.26 requires input validation."
+    metadata:
+      category: compliance
+      cwe: ["CWE-20"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [python, javascript, typescript, java, php]
+      compliance: ["ISO 27001:2022 A.8.26"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $CURSOR.execute("..." + $VAR)
+          - pattern: |
+              exec($VAR)
+          - pattern: |
+              eval($VAR)
+      - pattern-not: |
+          $CURSOR.execute("...", ...)
+
+  # A.8.3 — Information access restriction (no open CORS)
+  - id: iso27001.a8-3-open-cors
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "CORS configured with wildcard origin. ISO 27001 A.8.3 restricts information access."
+    metadata:
+      category: compliance
+      cwe: ["CWE-942"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: MEDIUM
+      technology: [javascript, typescript]
+      compliance: ["ISO 27001:2022 A.8.3"]
+    pattern-regex: |-
+      Access-Control-Allow-Origin["'\s]*:["'\s]*\*

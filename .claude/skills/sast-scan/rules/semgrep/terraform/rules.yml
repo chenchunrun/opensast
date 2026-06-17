@@ -1,0 +1,309 @@
+# Terraform / HCL Infrastructure-as-Code Security Rules
+# Covers AWS, GCP, Azure resource misconfigurations detectable via Semgrep.
+# Complements Checkov (Layer 1) with targeted structural patterns.
+
+rules:
+  # ── AWS ──────────────────────────────────────────────────────────
+
+  - id: terraform.aws.s3-bucket-public-acl
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "S3 bucket with public-read or public-read-write ACL. Remove the acl block or set to private."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              acl = "public-read"
+          - pattern: |
+              acl = "public-read-write"
+          - pattern: |
+              acl = "authenticated-read"
+      - pattern-inside: |
+          resource "aws_s3_bucket" "..." {
+              ...
+          }
+
+  - id: terraform.aws.s3-bucket-no-encryption
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "S3 bucket without encryption. Add server_side_encryption_configuration with AES256 or aws:kms."
+    metadata:
+      category: security
+      cwe: ["CWE-311"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    pattern: |
+      resource "aws_s3_bucket" "..." {
+          ...
+      }
+    pattern-not-inside: |
+      resource "aws_s3_bucket" $B {
+          ...
+          server_side_encryption_configuration {
+              ...
+          }
+          ...
+      }
+
+  - id: terraform.aws.security-group-open-world
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "Security group allows ingress from 0.0.0.0/0. Restrict to specific IP ranges."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    patterns:
+      - pattern: |
+          cidr_blocks = ["0.0.0.0/0"]
+      - pattern-inside: |
+          ingress {
+              ...
+          }
+
+  - id: terraform.aws.security-group-wide-open-port
+    languages: [terraform, hcl]
+    severity: WARNING
+    message: "Security group allows SSH (22) or RDP (3389) from 0.0.0.0/0. Restrict to admin IP ranges."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              from_port = 22
+          - pattern: |
+              from_port = 3389
+      - pattern: |
+          cidr_blocks = ["0.0.0.0/0"]
+      - pattern-inside: |
+          ingress {
+              ...
+          }
+
+  - id: terraform.aws.iam-policy-wildcard
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "IAM policy with wildcard action or resource (*). Grant least privilege with specific actions."
+    metadata:
+      category: security
+      cwe: ["CWE-269"]
+      owasp: ["A04:2021-Insecure Design"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              Action   = "*"
+          - pattern: |
+              Resource = "*"
+      - pattern-inside: |
+          statement {
+              ...
+          }
+
+  - id: terraform.aws.rds-public-access
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "RDS instance with public access. Set publicly_accessible = false unless required."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    pattern: |
+      publicly_accessible = true
+
+  - id: terraform.aws.ec2-imdsv1
+    languages: [terraform, hcl]
+    severity: WARNING
+    message: "EC2 instance using IMDSv1 which is vulnerable to SSRF-based credential theft. Set http_tokens = \"required\"."
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021-Server-Side Request Forgery"]
+      confidence: HIGH
+      technology: [terraform, aws]
+    patterns:
+      - pattern: |
+          http_tokens = "optional"
+      - pattern-inside: |
+          metadata_options {
+              ...
+          }
+
+  - id: terraform.aws.cloudfront-no-logging
+    languages: [terraform, hcl]
+    severity: WARNING
+    message: "CloudFront distribution without logging. Enable logging_config to satisfy audit requirements."
+    metadata:
+      category: security
+      cwe: ["CWE-778"]
+      owasp: ["A09:2021-Security Logging and Monitoring Failures"]
+      confidence: MEDIUM
+      technology: [terraform, aws]
+    pattern: |
+      resource "aws_cloudfront_distribution" "..." {
+          ...
+      }
+    pattern-not-inside: |
+      resource "aws_cloudfront_distribution" $D {
+          ...
+          logging_config {
+              ...
+          }
+          ...
+      }
+
+  # ── GCP ──────────────────────────────────────────────────────────
+
+  - id: terraform.gcp.gcs-bucket-public
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "GCS bucket with public IAM binding. Remove the allUsers or allAuthenticatedUsers member."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, gcp]
+    patterns:
+      - pattern: |
+          member = "allUsers"
+      - pattern: |
+          role = "roles/storage.objectViewer"
+      - pattern-inside: |
+          binding {
+              ...
+          }
+
+  - id: terraform.gcp.compute-firewall-open
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "GCP firewall rule with source_ranges = [\"0.0.0.0/0\"]. Restrict to specific IP ranges."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, gcp]
+    patterns:
+      - pattern: |
+          source_ranges = ["0.0.0.0/0"]
+      - pattern-inside: |
+          allow {
+              ...
+          }
+
+  # ── Azure ────────────────────────────────────────────────────────
+
+  - id: terraform.azure.storage-account-public
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "Azure Storage Account with public blob/container access. Set account_kind and disable anonymous access."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, azure]
+    pattern: |
+      account_tier = "Standard"
+    pattern-not-inside: |
+      resource "azurerm_storage_account" $ACCT {
+          ...
+          network_rules {
+              default_action = "Deny"
+          }
+          ...
+      }
+
+  - id: terraform.azure.sql-server-no-firewall
+    languages: [terraform, hcl]
+    severity: WARNING
+    message: "Azure SQL Server without firewall rules or with 0.0.0.0 Start IP. Add restricted firewall rules."
+    metadata:
+      category: security
+      cwe: ["CWE-284"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [terraform, azure]
+    patterns:
+      - pattern: |
+          start_ip_address = "0.0.0.0"
+      - pattern-inside: |
+          firewall_rule {
+              ...
+          }
+
+  # ── Generic IaC ──────────────────────────────────────────────────
+
+  - id: terraform.generic.secret-in-output
+    languages: [terraform, hcl]
+    severity: WARNING
+    message: "Sensitive value exposed in output block. Add sensitive = true to prevent displaying the value."
+    metadata:
+      category: security
+      cwe: ["CWE-200"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: MEDIUM
+      technology: [terraform]
+    patterns:
+      - pattern: |
+          output $NAME {
+              ...
+              value = $VAL
+              ...
+          }
+      - pattern-not: |
+          output $NAME {
+              ...
+              sensitive = true
+              ...
+          }
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(secret|password|key|token|credential|private_key).*
+
+  - id: terraform.generic.provider-hardcoded-credentials
+    languages: [terraform, hcl]
+    severity: ERROR
+    message: "Cloud provider configured with hardcoded credentials. Use environment variables or workload identity."
+    metadata:
+      category: security
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+      confidence: HIGH
+      technology: [terraform]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              provider "..." {
+                  ...
+                  access_key = "..."
+                  ...
+              }
+          - pattern: |
+              provider "..." {
+                  ...
+                  secret_key = "..."
+                  ...
+              }
+          - pattern: |
+              provider "..." {
+                  ...
+                  client_secret = "..."
+                  ...
+              }

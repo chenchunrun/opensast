@@ -15,7 +15,7 @@ rules:
       technology: [javascript, typescript, python, java]
       compliance: ["HIPAA 164.312(e)(1)"]
     pattern-either:
-      - pattern-regex: |-
+      - pattern-regex: |
           (?:fetch|axios\.post|requests\.post)\s*\(\s*['"]http://
       - pattern-regex: |-
           \.createConnection\s*\(\s*\{\s*(?!.*\bssl\s*:\s*true)

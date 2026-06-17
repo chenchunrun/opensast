@@ -1,0 +1,120 @@
+# Dockerfile Security Rules
+# Covers container image best practices: non-root user, pinned base images,
+# no leaked secrets, HEALTHCHECK presence, COPY vs ADD preference.
+# Uses generic language (pattern-regex) since Dockerfiles are not AST-parsed.
+
+rules:
+  - id: dockerfile.security.run-as-root
+    languages: [generic]
+    severity: ERROR
+    message: "Container runs as root. Add 'USER <non-root>' after installing packages."
+    metadata:
+      category: security
+      cwe: ["CWE-250"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: HIGH
+      technology: [docker]
+    pattern-either:
+      - pattern: USER root
+      - pattern: USER 0
+
+  - id: dockerfile.security.missing-user
+    languages: [generic]
+    severity: WARNING
+    message: "No USER directive found. Containers should not run as root. Add 'USER <uid>'."
+    metadata:
+      category: security
+      cwe: ["CWE-250"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: MEDIUM
+      technology: [docker]
+    pattern-regex: '^FROM\s'
+    # This flags any FROM line when no USER follows — heuristic only
+    pattern-not-regex: '^USER\s'
+
+  - id: dockerfile.security.latest-tag
+    languages: [generic]
+    severity: WARNING
+    message: "FROM image using latest tag. Pin to a specific digest or version for reproducible builds."
+    metadata:
+      category: security
+      cwe: ["CWE-1104"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+      confidence: HIGH
+      technology: [docker]
+    pattern-regex: '^FROM\s+[^:\s]+:[^\s]*latest'
+
+  - id: dockerfile.security.add-instead-of-copy
+    languages: [generic]
+    severity: INFO
+    message: "ADD is used instead of COPY. ADD fetches remote URLs and extracts tar files. Prefer COPY."
+    metadata:
+      category: security
+      cwe: ["CWE-1104"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+      confidence: MEDIUM
+      technology: [docker]
+    pattern-regex: '^ADD\s'
+
+  - id: dockerfile.security.secret-in-env
+    languages: [generic]
+    severity: ERROR
+    message: "Secret value hardcoded in ENV instruction. Use build args with --build-arg or secret mounts (--secret)."
+    metadata:
+      category: security
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+      confidence: HIGH
+      technology: [docker]
+    pattern-regex: '(?i)^ENV\s+(?:.*\b(?:PASSWORD|SECRET|API_KEY|TOKEN|PASSWD|AUTH_KEY|PRIVATE_KEY)\s*=)\s*[\S]+'
+
+  - id: dockerfile.security.apt-no-cleanup
+    languages: [generic]
+    severity: INFO
+    message: "apt-get install without cleanup. Add '&& rm -rf /var/lib/apt/lists/*' to reduce image size and attack surface."
+    metadata:
+      category: security
+      cwe: ["CWE-1104"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+      confidence: LOW
+      technology: [docker]
+    pattern-regex: '^RUN\s+apt-get\s+install'
+    pattern-not-regex: 'rm\s+-rf\s+/var/lib/apt/lists'
+
+  - id: dockerfile.security.curl-pipe-bash
+    languages: [generic]
+    severity: ERROR
+    message: "curl piped to bash detected. This is vulnerable to man-in-the-middle and supply-chain attacks. Use verified checksums."
+    metadata:
+      category: security
+      cwe: ["CWE-494"]
+      owasp: ["A08:2021-Software and Data Integrity Failures"]
+      confidence: HIGH
+      technology: [docker]
+    pattern-regex: 'curl\s+[^\s|]+\s*\|\s*(?:bash|sh|/bin/sh|/bin/bash)'
+
+  - id: dockerfile.security.missing-healthcheck
+    languages: [generic]
+    severity: INFO
+    message: "No HEALTHCHECK instruction. Add a health check for container orchestration readiness."
+    metadata:
+      category: security
+      cwe: ["CWE-754"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+      confidence: LOW
+      technology: [docker]
+    pattern-regex: '^CMD\s|^ENTRYPOINT\s'
+    pattern-not-regex: '^HEALTHCHECK\s'
+
+  - id: dockerfile.security.expose-all-ports
+    languages: [generic]
+    severity: INFO
+    message: "EXPOSE with wildcard or 0.0.0.0. Bind to specific interfaces."
+    metadata:
+      category: security
+      cwe: ["CWE-668"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: LOW
+      technology: [docker]
+    pattern-either:
+      - pattern-regex: '^EXPOSE\s+\d{1,5}\s+\d{1,5}\s+\d{1,5}\s+\d{1,5}\s+\d{1,5}'  # 5+ ports — too broad
