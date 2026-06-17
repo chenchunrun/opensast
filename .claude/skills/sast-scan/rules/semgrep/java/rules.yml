@@ -29,11 +29,6 @@ rules:
               $CONN.createStatement().executeQuery("..." + $VAR + "...")
           - pattern: |
               $CONN.createStatement().execute("..." + $VAR + "...")
-          - pattern: |
-              $STMT.executeUpdate("..." + $VAR + "..." + $VAR2)
-          - pattern: |
-              $STMT.executeUpdate("..." + $VAR + "...")
-          - pattern-regex: \.execute(?:Query|Update|)\([^)]*\+[^)]*\+
       - pattern-not: |
           $STMT.executeQuery("...")
 
@@ -113,8 +108,13 @@ rules:
           - pattern: new FileOutputStream($USER_INPUT)
           - pattern: new File($USER_INPUT)
           - pattern: Paths.get($USER_INPUT)
+          - pattern: $F.toPath(...)
       - pattern-not: new File("...")
       - pattern-not: Paths.get("...")
+      - pattern-not: |
+          new File($BASE, "...")
+      - pattern-not: |
+          Paths.get($BASE, "...")
 
   - id: java.security.xxe-xml-parser
     languages: [java]

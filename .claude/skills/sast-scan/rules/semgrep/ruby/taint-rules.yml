@@ -1,0 +1,243 @@
+# Ruby taint-mode rules: track Rails request parameters and untrusted
+# input through variable indirection into dangerous sinks.
+#
+# Ruby/Rails sources: params[:x], params.fetch(:x), request.env, cookies
+# Sinks: ActiveRecord queries, system/exec/backticks, File.open, render, etc.
+
+rules:
+  - id: ruby.security.taint-sql-injection
+    languages: [ruby]
+    severity: ERROR
+    message: "Untrusted request params flow into a SQL query. Use ActiveRecord parameter binding (? or named placeholders)."
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    mode: taint
+    pattern-sources:
+      - pattern: params[$KEY]
+      - pattern: params[:$KEY]
+      - pattern: params.fetch(:$KEY)
+      - pattern: params.permit(...)
+      - pattern: cookies[$KEY]
+      - pattern: cookies[:$KEY]
+    pattern-sanitizers:
+      - pattern: $X.to_i
+      - pattern: Integer($X)
+      - pattern: $X.to_f
+      - pattern: ActiveRecord::Base.sanitize_sql(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: |
+          "#{$X}"
+        from: $X
+        to: ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $MODEL.where($SQL)
+              - pattern: $MODEL.find_by_sql($SQL)
+              - pattern: $MODEL.where("...#{...}...")
+              - pattern: $CONN.execute($SQL)
+              - pattern: ActiveRecord::Base.connection.execute($SQL)
+              - pattern: $MODEL.where($SQL).$METHOD
+          - focus-metavariable: $SQL
+
+  - id: ruby.security.taint-command-injection
+    languages: [ruby]
+    severity: ERROR
+    message: "Untrusted request params flow into command execution. Use system() with separate arguments, not string interpolation."
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    mode: taint
+    pattern-sources:
+      - pattern: params[$KEY]
+      - pattern: params[:$KEY]
+      - pattern: params.fetch(:$KEY)
+      - pattern: cookies[$KEY]
+    pattern-sanitizers:
+      - pattern: $X.to_i
+      - pattern: Shellwords.escape(...)
+      - pattern: Shellwords.shellescape(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: |
+          "#{$X}"
+        from: $X
+        to: ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: system($CMD)
+              - pattern: exec($CMD)
+              - pattern: |
+                  `#$CMD`
+              - pattern: |
+                  %x[$CMD]
+              - pattern: Open3.capture2($CMD)
+              - pattern: Open3.popen3($CMD)
+          - focus-metavariable: $CMD
+
+  - id: ruby.security.taint-path-traversal
+    languages: [ruby]
+    severity: ERROR
+    message: "Untrusted request params flow into file access. Validate paths against an allowlist and canonicalize."
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    mode: taint
+    pattern-sources:
+      - pattern: params[$KEY]
+      - pattern: params[:$KEY]
+      - pattern: params.fetch(:$KEY)
+      - pattern: request.env[$KEY]
+    pattern-sanitizers:
+      - pattern: File.basename(...)
+      - pattern: File.expand_path(...)
+      - pattern: Pathname.new(...).cleanpath
+    pattern-propagators:
+      - pattern: File.join($BASE, $X)
+        from: $X
+        to: $BASE
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: File.open($PATH)
+              - pattern: File.read($PATH)
+              - pattern: IO.read($PATH)
+              - pattern: File.delete($PATH)
+              - pattern: send_file($PATH)
+              - pattern: IO.readlines($PATH)
+          - focus-metavariable: $PATH
+
+  - id: ruby.security.taint-ssrf
+    languages: [ruby]
+    severity: ERROR
+    message: "Untrusted request params flow into an outbound HTTP request. Validate URLs against an allowlist."
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021-Server-Side Request Forgery"]
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    mode: taint
+    pattern-sources:
+      - pattern: params[$KEY]
+      - pattern: params[:$KEY]
+      - pattern: params.fetch(:$KEY)
+      - pattern: request.env[$KEY]
+    pattern-sanitizers:
+      - pattern: URI.parse(...)
+      - pattern: Addressable::URI.parse(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: |
+          "#{$X}"
+        from: $X
+        to: ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($URL)
+              - pattern: URI.open($URL)
+              - pattern: Kernel.open($URL)
+              - pattern: Net::HTTP.get($URI)
+              - pattern: Net::HTTP.get_response($URI)
+              - pattern: Net::HTTP.post_form($URI, ...)
+              - pattern: RestClient.get($URL)
+              - pattern: RestClient.post($URL, ...)
+              - pattern: Faraday.get($URL)
+              - pattern: HTTParty.get($URL)
+          - focus-metavariable: $URL
+
+  - id: ruby.security.taint-xss
+    languages: [ruby]
+    severity: ERROR
+    message: "Untrusted request params flow into HTML output without escaping. Use h() helper or automatic template escaping."
+    metadata:
+      category: security
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    mode: taint
+    pattern-sources:
+      - pattern: params[$KEY]
+      - pattern: params[:$KEY]
+      - pattern: cookies[$KEY]
+      - pattern: request.env[$KEY]
+    pattern-sanitizers:
+      - pattern: h(...)
+      - pattern: html_escape(...)
+      - pattern: ERB::Util.html_escape(...)
+      - pattern: sanitize(...)
+      - pattern: strip_tags(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: raw($DATA)
+              - pattern: $DATA.html_safe
+              - pattern: |
+                  render inline: $DATA
+              - pattern: |
+                  render plain: $DATA
+              - pattern: |
+                  render html: $DATA
+          - focus-metavariable: $DATA
+
+  - id: ruby.security.taint-deserialize
+    languages: [ruby]
+    severity: ERROR
+    message: "Untrusted request params flow into deserialization. Use YAML.safe_load and avoid Marshal.load on untrusted data."
+    metadata:
+      category: security
+      cwe: ["CWE-502"]
+      owasp: ["A08:2021-Software and Data Integrity Failures"]
+      confidence: MEDIUM
+      technology: [ruby, rails]
+    mode: taint
+    pattern-sources:
+      - pattern: params[$KEY]
+      - pattern: params[:$KEY]
+      - pattern: cookies[$KEY]
+      - pattern: request.env[$KEY]
+    pattern-sanitizers:
+      - by-side-effect: true
+        patterns:
+          - pattern: Base64.decode64(...)
+    pattern-propagators:
+      - pattern: Base64.decode64($X)
+        from: $X
+        to: ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: YAML.load($DATA)
+              - pattern: Marshal.load($DATA)
+              - pattern: Psych.load($DATA)
+              - pattern: Oj.load($DATA)
+              - pattern: |
+                  JSON.parse($DATA, create_additions: true)
+          - focus-metavariable: $DATA

@@ -1,0 +1,251 @@
+# Go taint-mode rules: track HTTP request input through variable
+# indirection into dangerous sinks. These complement the syntactic rules in
+# rules.yml, which only match the vulnerable call written inline.
+#
+# Go HTTP sources: net/http Request.FormValue, URL.Query, PostFormValue
+# Framework sources: gin.Context, echo.Context, fiber.Ctx
+
+rules:
+  - id: go.security.taint-sql-injection
+    languages: [go]
+    severity: ERROR
+    message: "Untrusted HTTP request data flows into a SQL query. Use placeholders ($1, $2...) instead of string concatenation."
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [go]
+    mode: taint
+    pattern-sources:
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.URL.Query()[$KEY]
+      - pattern: $C.Query(...)
+      - pattern: $C.Param(...)
+      - pattern: $C.FormValue(...)
+      - pattern: $F.Query(...)
+      - pattern: $F.Params(...)
+      - pattern: $F.FormValue(...)
+    pattern-sanitizers:
+      - pattern: strconv.Atoi(...)
+      - pattern: strconv.ParseInt(...)
+      - pattern: strconv.ParseFloat(...)
+      - pattern: regexp.MustCompile(...)
+    pattern-propagators:
+      - pattern: fmt.Sprintf($FMT, $X)
+        from: $X
+        to: $FMT
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: $SB.WriteString($X)
+        from: $X
+        to: $SB
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($SQL, ...)
+              - pattern: $DB.QueryContext($CTX, $SQL, ...)
+              - pattern: $DB.QueryRow($SQL, ...)
+              - pattern: $DB.QueryRowContext($CTX, $SQL, ...)
+              - pattern: $DB.Exec($SQL, ...)
+              - pattern: $DB.ExecContext($CTX, $SQL, ...)
+              - pattern: $TX.Query($SQL, ...)
+              - pattern: $TX.Exec($SQL, ...)
+          - focus-metavariable: $SQL
+
+  - id: go.security.taint-command-injection
+    languages: [go]
+    severity: ERROR
+    message: "Untrusted HTTP request data flows into an OS command. Use validated arguments with exec.Command (not shell strings)."
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [go]
+    mode: taint
+    pattern-sources:
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.URL.Query()[$KEY]
+      - pattern: $C.Query(...)
+      - pattern: $C.Param(...)
+      - pattern: $C.FormValue(...)
+      - pattern: $F.Query(...)
+      - pattern: $F.Params(...)
+      - pattern: $F.FormValue(...)
+    pattern-sanitizers:
+      - pattern: strconv.Atoi(...)
+      - pattern: strconv.ParseInt(...)
+      - pattern: filepath.Clean(...)
+    pattern-propagators:
+      - pattern: fmt.Sprintf($FMT, $X)
+        from: $X
+        to: $FMT
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec.Command($CMD, ...)
+              - pattern: exec.CommandContext($CTX, $CMD, ...)
+              - pattern: os/exec.Command($CMD, ...)
+          - focus-metavariable: $CMD
+
+  - id: go.security.taint-path-traversal
+    languages: [go]
+    severity: ERROR
+    message: "Untrusted HTTP request data flows into a file path. Clean and validate against an allowlist."
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [go]
+    mode: taint
+    pattern-sources:
+      - pattern: $R.FormValue(...)
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.URL.Query()[$KEY]
+      - pattern: $C.Query(...)
+      - pattern: $C.Param(...)
+      - pattern: $F.Query(...)
+      - pattern: $F.Params(...)
+    pattern-sanitizers:
+      - pattern: filepath.Clean(...)
+      - pattern: filepath.Base(...)
+      - pattern: path.Clean(...)
+    pattern-propagators:
+      - pattern: filepath.Join($BASE, $X)
+        from: $X
+        to: $BASE
+      - pattern: path.Join($BASE, $X)
+        from: $X
+        to: $BASE
+      - pattern: fmt.Sprintf($FMT, $X)
+        from: $X
+        to: $FMT
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.Open($PATH)
+              - pattern: os.OpenFile($PATH, ...)
+              - pattern: os.Create($PATH)
+              - pattern: os.ReadFile($PATH)
+              - pattern: os.WriteFile($PATH, ...)
+              - pattern: ioutil.ReadFile($PATH)
+              - pattern: ioutil.WriteFile($PATH, ...)
+          - focus-metavariable: $PATH
+
+  - id: go.security.taint-ssrf
+    languages: [go]
+    severity: ERROR
+    message: "Untrusted HTTP request data flows into an outbound HTTP request. Validate URLs against an allowlist."
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021-Server-Side Request Forgery"]
+      confidence: MEDIUM
+      technology: [go]
+    mode: taint
+    pattern-sources:
+      - pattern: $R.FormValue(...)
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.URL.Query()[$KEY]
+      - pattern: $C.Query(...)
+      - pattern: $C.FormValue(...)
+      - pattern: $F.Query(...)
+      - pattern: $F.FormValue(...)
+    pattern-sanitizers:
+      - pattern: url.Parse(...)
+      - pattern: net/url.Parse(...)
+    pattern-propagators:
+      - pattern: fmt.Sprintf($FMT, $X)
+        from: $X
+        to: $FMT
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: http.Get($URL)
+              - pattern: http.Post($URL, ...)
+              - pattern: http.PostForm($URL, ...)
+              - pattern: http.NewRequest($METHOD, $URL, ...)
+              - pattern: $CLIENT.Get($URL)
+              - pattern: $CLIENT.Post($URL, ...)
+              - pattern: $CLIENT.Do($REQ)
+          - focus-metavariable: $URL
+
+  - id: go.security.taint-xss-template
+    languages: [go]
+    severity: ERROR
+    message: "Untrusted HTTP request data flows into HTML template output without escaping. Use html/template or explicit escaping."
+    metadata:
+      category: security
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [go]
+    mode: taint
+    pattern-sources:
+      - pattern: $R.FormValue(...)
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.URL.Query()[$KEY]
+      - pattern: $C.Query(...)
+      - pattern: $C.Param(...)
+      - pattern: $C.FormValue(...)
+      - pattern: $F.Query(...)
+      - pattern: $F.Params(...)
+    pattern-sanitizers:
+      - pattern: template.HTMLEscapeString(...)
+      - pattern: template.HTMLEscaper(...)
+      - pattern: html.EscapeString(...)
+      - pattern: url.QueryEscape(...)
+    pattern-propagators:
+      - pattern: fmt.Sprintf($FMT, $X)
+        from: $X
+        to: $FMT
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $TMPL.Execute($W, $DATA)
+              - pattern: $TMPL.ExecuteTemplate($W, $NAME, $DATA)
+              - pattern: fmt.Fprintf($W, $FMT, $DATA)
+              - pattern: io.WriteString($W, $DATA)
+          - focus-metavariable: $DATA
+
+  - id: go.security.taint-open-redirect
+    languages: [go]
+    severity: WARNING
+    message: "Untrusted HTTP request data flows into a redirect target. Validate redirect URLs against an allowlist."
+    metadata:
+      category: security
+      cwe: ["CWE-601"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [go]
+    mode: taint
+    pattern-sources:
+      - pattern: $R.FormValue(...)
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $C.Query(...)
+    pattern-sanitizers:
+      - pattern: url.Parse(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: http.Redirect($W, $R, $URL, $CODE)
+              - pattern: $C.Redirect($CODE, $URL)
+              - pattern: $C.Redirect($URL)
+          - focus-metavariable: $URL

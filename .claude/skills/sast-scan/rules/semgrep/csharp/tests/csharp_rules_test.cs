@@ -125,4 +125,59 @@ class CsharpRulesTest
         var settings = new System.Xml.XmlReaderSettings();
         System.Xml.XmlReader.Create(path, settings);
     }
+
+    void InsecureCookie()
+    {
+        var cookie = new HttpCookie("session");
+        // ruleid: csharp.security.insecure-cookie
+        cookie.Secure = false;
+        // ruleid: csharp.security.insecure-cookie
+        cookie.HttpOnly = false;
+
+        // ok: csharp.security.insecure-cookie
+        var safe = new HttpCookie("token") { Secure = true, HttpOnly = true };
+    }
+
+    void CsrfDisabled()
+    {
+        // ruleid: csharp.security.csrf-disabled
+        [IgnoreAntiforgeryToken]
+        public IActionResult Post() => Ok();
+
+        // ok: csharp.security.csrf-disabled
+        [ValidateAntiForgeryToken]
+        public IActionResult SafePost() => Ok();
+    }
+
+    void InsecureTls()
+    {
+        // ruleid: csharp.security.insecure-tls
+        ServicePointManager.ServerCertificateValidationCallback =
+            (sender, cert, chain, errors) => true;
+
+        // ok: csharp.security.insecure-tls — validators that actually check
+        ServicePointManager.ServerCertificateValidationCallback =
+            (sender, cert, chain, errors) => errors == SslPolicyErrors.None;
+    }
+
+    void WeakEncryptionDes()
+    {
+        // ruleid: csharp.security.weak-encryption-des
+        DES.Create();
+
+        // ruleid: csharp.security.weak-encryption-des
+        new DESCryptoServiceProvider();
+
+        // ok: csharp.security.weak-encryption-des
+        Aes.Create();
+    }
+
+    void SensitiveDataLogging(ILogger logger, string password)
+    {
+        // ruleid: csharp.security.sensitive-data-logging
+        logger.LogInformation("Login attempt with password: {Password}", password);
+
+        // ok: csharp.security.sensitive-data-logging
+        logger.LogInformation("User {Username} logged in", username);
+    }
 }
