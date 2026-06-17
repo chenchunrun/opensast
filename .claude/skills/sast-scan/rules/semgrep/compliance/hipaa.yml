@@ -1,37 +1,12 @@
-# HIPAA — Health Insurance Portability and Accountability Act
-# Security Rule (45 CFR Part 164 Subpart C) code-detectable patterns
+# HIPAA — Security Rule (45 CFR Part 164 Subpart C)
+# Uses pattern-regex for cross-language detection to avoid parser mismatches.
 
 rules:
-  # 164.312(a)(1) — Access Control: unique user identification
-  - id: hipaa.access-no-user-audit
-    languages: [python, javascript, typescript, java, php, ruby]
-    severity: WARNING
-    message: "PHI access without user identification logging. HIPAA 164.312(a)(1) requires unique user tracking."
-    metadata:
-      category: compliance
-      cwe: ["CWE-778"]
-      owasp: ["A09:2021-Security Logging and Monitoring Failures"]
-      confidence: MEDIUM
-      technology: [python, javascript, typescript, java, php, ruby]
-      compliance: ["HIPAA 164.312(a)(1)"]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              def $F(patient_id, ...):
-                  ...
-                  return
-          - pattern: |
-              app.$METHOD("/patients/...", ...)
-      - pattern-not-inside: |
-          ...
-          log_user_access(...)
-          ...
-
-  # 164.312(e)(1) — Transmission Security: encryption in transit
+  # 164.312(e)(1) — Transmission Security
   - id: hipaa.transmission-no-tls
-    languages: [javascript, typescript, python, java]
+    languages: [generic]
     severity: WARNING
-    message: "PHI data transmitted over unencrypted channel. HIPAA 164.312(e)(1) requires transmission security."
+    message: "Data transmitted over unencrypted HTTP channel. HIPAA 164.312(e)(1) requires transmission security."
     metadata:
       category: compliance
       cwe: ["CWE-319"]
@@ -40,14 +15,16 @@ rules:
       technology: [javascript, typescript, python, java]
       compliance: ["HIPAA 164.312(e)(1)"]
     pattern-either:
-      - pattern-regex: (?:fetch|axios\.post|requests\.post)\s*\(\s*["\']http://
-      - pattern-regex: \.createConnection\s*\(\s*{\s*(?!.*\bssl\s*:\s*true)
+      - pattern-regex: |-
+          (?:fetch|axios\.post|requests\.post)\s*\(\s*['"]http://
+      - pattern-regex: |-
+          \.createConnection\s*\(\s*\{\s*(?!.*\bssl\s*:\s*true)
 
-  # 164.312(a)(2)(iv) — Encryption and Decryption of ePHI at rest
+  # 164.312(a)(2)(iv) — Encryption at rest (weak algorithms)
   - id: hipaa.encryption-weak-algorithm
-    languages: [python, javascript, typescript, java, php, ruby]
+    languages: [generic]
     severity: ERROR
-    message: "Weak encryption algorithm for PHI data. HIPAA 164.312(a)(2)(iv) requires adequate encryption."
+    message: "Weak encryption algorithm used for data. HIPAA 164.312(a)(2)(iv) requires adequate encryption."
     metadata:
       category: compliance
       cwe: ["CWE-326"]
@@ -55,65 +32,27 @@ rules:
       confidence: HIGH
       technology: [python, javascript, typescript, java, php, ruby]
       compliance: ["HIPAA 164.312(a)(2)(iv)"]
-    patterns:
-      - pattern-either:
-          - pattern: hashlib.md5(...)
-          - pattern: hashlib.sha1(...)
-          - pattern: MD5.Create(...)
-          - pattern: Digest::MD5.hexdigest(...)
-          - pattern: md5(...)
-          - pattern: sha1(...)
-      - pattern-not-inside: |
-          ...
-          # non-phi checksum
-          ...
+    pattern-either:
+      - pattern-regex: hashlib\.md5\s*\(
+      - pattern-regex: hashlib\.sha1\s*\(
+      - pattern-regex: CryptoJS\.MD5\s*\(
+      - pattern-regex: md5\s*\(\s*\$pass
+      - pattern-regex: Digest::MD5\.hexdigest\s*\(
+      - pattern-regex: MessageDigest\.getInstance\s*\(\s*"(MD5|SHA-1|SHA1)"
 
-  # 164.312(b) — Audit Controls: logging of PHI access
-  - id: hipaa.audit-phi-access-no-log
-    languages: [python, javascript, typescript, java, php, ruby]
-    severity: INFO
-    message: "Database query on PHI table without audit log. HIPAA 164.312(b) requires audit controls."
-    metadata:
-      category: compliance
-      cwe: ["CWE-532"]
-      owasp: ["A09:2021-Security Logging and Monitoring Failures"]
-      confidence: LOW
-      technology: [python, javascript, typescript, java, php, ruby]
-      compliance: ["HIPAA 164.312(b)"]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              ...SELECT * FROM patients...
-          - pattern: |
-              ...SELECT * FROM medical_records...
-          - pattern: |
-              ...SELECT * FROM phi...
-          - pattern: |
-              ...SELECT * FROM ephi...
-      - pattern-not-inside: |
-          ...
-          $LOGGER.audit(...)
-          ...
-
-  # 164.312(d) — Person or Entity Authentication: no session timeout
+  # 164.312(d) — Session timeout
   - id: hipaa.session-no-timeout
-    languages: [python, javascript, typescript, java, php, ruby]
+    languages: [generic]
     severity: WARNING
-    message: "Session configuration without timeout. HIPAA 164.312(d) requires automatic logoff."
+    message: "Session configured without timeout or with very long duration. HIPAA 164.312(d) requires automatic logoff."
     metadata:
       category: compliance
       cwe: ["CWE-613"]
       owasp: ["A07:2021-Identification and Authentication Failures"]
       confidence: MEDIUM
-      technology: [python, javascript, typescript, java, php, ruby]
+      technology: [python, javascript, typescript, java]
       compliance: ["HIPAA 164.312(d)"]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              session.permanent = true
-          - pattern: |
-              SESSION_COOKIE_AGE = None
-          - pattern: |
-              cookie: {..., maxAge: null, ...}
-          - pattern: |
-              cookie: {..., maxAge: undefined, ...}
+    pattern-either:
+      - pattern-regex: SESSION_COOKIE_AGE\s*=\s*None
+      - pattern-regex: maxAge\s*:\s*(?:null|undefined|2147483647)
+      - pattern-regex: <session-timeout>\s*-?\d*\s*</session-timeout>

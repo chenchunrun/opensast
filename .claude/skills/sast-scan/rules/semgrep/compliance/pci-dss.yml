@@ -65,7 +65,7 @@ rules:
 
   # Req 6.5.1 — Injection flaws (SQL injection)
   - id: pci-dss.sql-string-concatenation
-    languages: [python, javascript, typescript, java, php, ruby, csharp]
+    languages: [python, javascript, typescript, java, ruby, csharp]
     severity: ERROR
     message: "SQL string concatenation detected. PCI-DSS 6.5.1 requires parameterized queries."
     metadata:
@@ -73,17 +73,19 @@ rules:
       cwe: ["CWE-89"]
       owasp: ["A03:2021-Injection"]
       confidence: HIGH
-      technology: [python, javascript, typescript, java, php, ruby, csharp]
+      technology: [python, javascript, typescript, java, ruby, csharp]
       compliance: ["PCI-DSS 4.0 6.5.1"]
     patterns:
       - pattern-either:
           - pattern: |
               $CURSOR.execute("..." + $VAR)
           - pattern: |
-              $CURSOR.execute(f"...{$VAR}...")
-          - pattern: |
               $CURSOR.execute("..." + $VAR + "...")
           - pattern: |
-              $CMD.CommandText = "..." + $VAR
+              $CONN.execute("..." + $VAR)
+          - pattern: |
+              $CONN.execute("..." + $VAR + "...")
       - pattern-not: |
           $CURSOR.execute("...", ...)
+      - pattern-not: |
+          $CONN.execute("...", ...)

@@ -169,13 +169,12 @@ rules:
       technology: [python]
     patterns:
       - pattern-either:
-          - pattern: open($USER_INPUT, ...)
-          - pattern: os.path.join($BASE, $USER_INPUT)
-          - pattern: pathlib.Path($USER_INPUT)
-          - pattern: os.path.join($BASE, $USER_INPUT, ...)
+          - pattern: open($CALL(...), ...)
+          - pattern: pathlib.Path($CALL(...))
       - pattern-not: open("...", ...)
-      - pattern-not: os.path.join("...", "...")
       - pattern-not: pathlib.Path("...")
+      - pattern-not: |
+          open(os.path.join($D, "..."), ...)
 
   - id: python.security.open-redirect
     languages: [python]
@@ -474,9 +473,17 @@ rules:
           - pattern: |
               $CONN.search_s("..." + $VAR + "...", ...)
           - pattern: |
+              $CONN.search_s("..." + $VAR + "...")
+          - pattern: |
               $CONN.search("..." + $VAR + "...", ...)
+          - pattern: |
+              $CONN.search("..." + $VAR + "...")
       - pattern-not: |
           $CONN.search_s("...", ...)
+      - pattern-not: |
+          $CONN.search("...", ...)
+      - pattern-not: |
+          re.search(...)
 
   - id: python.security.des-usage
     languages: [python]
