@@ -1,0 +1,264 @@
+# C# taint-mode rules: track ASP.NET request input through variable
+# indirection into dangerous sinks. These complement the syntactic rules in
+# rules.yml, which only match the vulnerable call written inline.
+#
+# ASP.NET request sources: HttpRequest.QueryString, .Form, .Params, .Headers
+# plus controller binding via [FromQuery], [FromForm], [FromBody], [FromRoute].
+
+rules:
+  - id: csharp.security.taint-sql-injection
+    languages: [csharp]
+    severity: ERROR
+    message: "Untrusted request data flows into a SQL query. Use SqlParameter instead of string concatenation."
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [csharp]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpRequest $REQ).QueryString[$KEY]
+      - pattern: (HttpRequest $REQ).Query[$KEY]
+      - pattern: (HttpRequest $REQ).Form[$KEY]
+      - pattern: (HttpRequest $REQ).Params[$KEY]
+      - pattern: (HttpRequest $REQ).Headers[$KEY]
+      - pattern: $REQ.QueryString[$KEY]
+      - pattern: $REQ.Query[$KEY]
+      - pattern: $REQ.Form[$KEY]
+      - pattern: $REQ.Params[$KEY]
+      - pattern: $REQ.Headers[$KEY]
+      - pattern: $CTRL.Request.QueryString[$KEY]
+      - pattern: $CTRL.Request.Form[$KEY]
+      - pattern: Request.QueryString[$KEY]
+      - pattern: Request.Form[$KEY]
+    pattern-sanitizers:
+      - pattern: SqlParameter($NAME, $VAL)
+      - pattern: new SqlParameter($NAME, $VAL)
+      - pattern: int.Parse(...)
+      - pattern: Int32.Parse(...)
+      - pattern: Convert.ToInt32(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: String.Format($FMT, $X)
+        from: $X
+        to: $FMT
+      - pattern: $SB.Append($X)
+        from: $X
+        to: $SB
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CMD.CommandText = $SQL;
+              - pattern: $CONN.ExecuteReader($SQL);
+              - pattern: $CONN.ExecuteNonQuery($SQL);
+              - pattern: $CONN.ExecuteScalar($SQL);
+          - focus-metavariable: $SQL
+
+  - id: csharp.security.taint-command-injection
+    languages: [csharp]
+    severity: ERROR
+    message: "Untrusted request data flows into an OS command. Use a fixed command with validated arguments."
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [csharp]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpRequest $REQ).QueryString[$KEY]
+      - pattern: (HttpRequest $REQ).Query[$KEY]
+      - pattern: (HttpRequest $REQ).Form[$KEY]
+      - pattern: (HttpRequest $REQ).Params[$KEY]
+      - pattern: (HttpRequest $REQ).Headers[$KEY]
+      - pattern: $REQ.QueryString[$KEY]
+      - pattern: $REQ.Query[$KEY]
+      - pattern: $REQ.Form[$KEY]
+      - pattern: $REQ.Params[$KEY]
+      - pattern: $REQ.Headers[$KEY]
+      - pattern: $CTRL.Request.QueryString[$KEY]
+      - pattern: $CTRL.Request.Form[$KEY]
+      - pattern: Request.QueryString[$KEY]
+      - pattern: Request.Form[$KEY]
+    pattern-sanitizers:
+      - pattern: int.Parse(...)
+      - pattern: Int32.Parse(...)
+      - pattern: Convert.ToInt32(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: String.Format($FMT, $X)
+        from: $X
+        to: $FMT
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: Process.Start($CMD);
+              - pattern: Process.Start($CMD, $ARGS);
+              - pattern: new ProcessStartInfo($CMD);
+              - pattern: Process.Start(new ProcessStartInfo($CMD));
+          - focus-metavariable: $CMD
+
+  - id: csharp.security.taint-path-traversal
+    languages: [csharp]
+    severity: ERROR
+    message: "Untrusted request data flows into a file path. Validate and canonicalize the path."
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [csharp]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpRequest $REQ).QueryString[$KEY]
+      - pattern: (HttpRequest $REQ).Query[$KEY]
+      - pattern: (HttpRequest $REQ).Params[$KEY]
+      - pattern: $REQ.QueryString[$KEY]
+      - pattern: $REQ.Query[$KEY]
+      - pattern: $REQ.Params[$KEY]
+      - pattern: Request.QueryString[$KEY]
+      - pattern: Request.Form[$KEY]
+    pattern-sanitizers:
+      - pattern: Path.GetFileName(...)
+      - pattern: Path.Combine("...", ...)
+    pattern-propagators:
+      - pattern: Path.Combine($BASE, $X)
+        from: $X
+        to: $BASE
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: File.Open($PATH, ...);
+              - pattern: File.ReadAllText($PATH);
+              - pattern: File.WriteAllText($PATH, ...);
+              - pattern: new FileStream($PATH, ...);
+              - pattern: System.IO.File.Open($PATH, ...);
+              - pattern: System.IO.File.ReadAllText($PATH);
+          - focus-metavariable: $PATH
+
+  - id: csharp.security.taint-ssrf
+    languages: [csharp]
+    severity: ERROR
+    message: "Untrusted request data flows into an outbound HTTP request. Validate URLs against an allowlist."
+    metadata:
+      category: security
+      cwe: ["CWE-918"]
+      owasp: ["A10:2021-Server-Side Request Forgery"]
+      confidence: MEDIUM
+      technology: [csharp]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpRequest $REQ).QueryString[$KEY]
+      - pattern: (HttpRequest $REQ).Query[$KEY]
+      - pattern: (HttpRequest $REQ).Form[$KEY]
+      - pattern: (HttpRequest $REQ).Params[$KEY]
+      - pattern: $REQ.QueryString[$KEY]
+      - pattern: $REQ.Query[$KEY]
+      - pattern: $REQ.Form[$KEY]
+      - pattern: $REQ.Params[$KEY]
+      - pattern: Request.QueryString[$KEY]
+      - pattern: Request.Form[$KEY]
+    pattern-sanitizers:
+      - by-side-effect: true
+        patterns:
+          - pattern: new Uri($X)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: String.Format($FMT, $X)
+        from: $X
+        to: $FMT
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: WebRequest.Create($URL);
+              - pattern: HttpClient.GetAsync($URL);
+              - pattern: new HttpClient().GetAsync($URL);
+              - pattern: $CLIENT.GetAsync($URL);
+              - pattern: $CLIENT.PostAsync($URL, ...);
+          - focus-metavariable: $URL
+
+  - id: csharp.security.taint-xss
+    languages: [csharp]
+    severity: ERROR
+    message: "Untrusted request data flows into HTTP response output. HTML-encode all user input."
+    metadata:
+      category: security
+      cwe: ["CWE-79"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [csharp]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpRequest $REQ).QueryString[$KEY]
+      - pattern: (HttpRequest $REQ).Query[$KEY]
+      - pattern: (HttpRequest $REQ).Form[$KEY]
+      - pattern: (HttpRequest $REQ).Params[$KEY]
+      - pattern: $REQ.QueryString[$KEY]
+      - pattern: $REQ.Query[$KEY]
+      - pattern: $REQ.Form[$KEY]
+      - pattern: $REQ.Params[$KEY]
+      - pattern: Request.QueryString[$KEY]
+      - pattern: Request.Form[$KEY]
+    pattern-sanitizers:
+      - pattern: HtmlEncoder.Default.Encode(...)
+      - pattern: HttpUtility.HtmlEncode(...)
+      - pattern: WebUtility.HtmlEncode(...)
+      - pattern: Server.HtmlEncode(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.Write($BODY);
+              - pattern: $RESP.WriteAsync($BODY);
+              - pattern: Response.Write($BODY);
+          - focus-metavariable: $BODY
+
+  - id: csharp.security.taint-ldap-injection
+    languages: [csharp]
+    severity: ERROR
+    message: "Untrusted request data flows into an LDAP search filter. Escape special characters."
+    metadata:
+      category: security
+      cwe: ["CWE-90"]
+      owasp: ["A03:2021-Injection"]
+      confidence: MEDIUM
+      technology: [csharp]
+    mode: taint
+    pattern-sources:
+      - pattern: (HttpRequest $REQ).QueryString[$KEY]
+      - pattern: (HttpRequest $REQ).Query[$KEY]
+      - pattern: (HttpRequest $REQ).Form[$KEY]
+      - pattern: $REQ.QueryString[$KEY]
+      - pattern: $REQ.Query[$KEY]
+      - pattern: $REQ.Form[$KEY]
+      - pattern: Request.QueryString[$KEY]
+      - pattern: Request.Form[$KEY]
+    pattern-sanitizers:
+      - pattern: int.Parse(...)
+      - pattern: Guid.Parse(...)
+    pattern-propagators:
+      - pattern: $X + $Y
+        from: $X
+        to: $Y
+      - pattern: String.Format($FMT, $X)
+        from: $X
+        to: $FMT
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $S.Filter = $FILTER;
+              - pattern: $S.Filter = "(" + $FILTER + ")";
+          - focus-metavariable: $FILTER

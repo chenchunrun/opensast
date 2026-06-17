@@ -117,7 +117,6 @@ def run_semgrep(
 
     cmd = [
         semgrep_bin,
-        "--config", "auto",
         "--sarif-output", sarif_path,
         "--json-output", json_path,
         "--timeout", str(timeout),
@@ -126,6 +125,10 @@ def run_semgrep(
     if config_paths:
         for cfg in config_paths:
             cmd.extend(["--config", cfg])
+    else:
+        # Fall back to semgrep registry rules when no custom config is provided.
+        # Use explicit rule packs (no auto-config) so metrics-off is respected.
+        cmd.extend(["--config", "p/default"])
 
     cmd.extend(scan_targets)
 

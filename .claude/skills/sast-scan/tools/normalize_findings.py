@@ -465,6 +465,11 @@ def normalize_phpstan_json(data: dict) -> list[dict]:
         safe_path = os.path.normpath(file_path)
         if safe_path.startswith("..") or os.path.isabs(safe_path):
             safe_path = safe_path.lstrip("/")
+        # Strip leading ../ components that normpath preserves on relative paths
+        while safe_path.startswith("../") or safe_path.startswith("..\\"):
+            safe_path = safe_path[3:]
+        if safe_path.startswith(".."):
+            safe_path = safe_path[2:]  # bare .. without trailing slash
         for msg in payload.get("messages", []):
             if not isinstance(msg, dict):
                 continue

@@ -1,0 +1,179 @@
+# Kotlin security rules — covers Android, Ktor, and Spring Boot Kotlin patterns
+# Kotlin has unique security considerations: coroutine context leakage,
+# Flow-based data exposure, and Android-specific IPC vulnerabilities.
+
+rules:
+  - id: kotlin.security.sql-injection-string-concat
+    languages: [kotlin]
+    severity: ERROR
+    message: "Detected SQL query using string interpolation. Use parameterized queries with PreparedStatement or Room @Query bindings."
+    metadata:
+      category: security
+      cwe: ["CWE-89"]
+      owasp: ["A03:2021-Injection"]
+      confidence: HIGH
+      technology: [kotlin]
+    patterns:
+      - pattern-either:
+          - pattern: $CONN.execute("..." + $VAR + "...")
+          - pattern: $CONN.executeQuery("..." + $VAR + "...")
+          - pattern: $DB.execSQL("..." + $VAR + "...")
+          - pattern: $STMT.execute("SELECT ..." + $VAR + "...")
+      - pattern-not: $CONN.execute("...")
+
+  - id: kotlin.security.command-injection
+    languages: [kotlin]
+    severity: ERROR
+    message: "Detected command execution with user-controlled input. Use ProcessBuilder with validated arguments."
+    metadata:
+      category: security
+      cwe: ["CWE-78"]
+      owasp: ["A03:2021-Injection"]
+      confidence: HIGH
+      technology: [kotlin]
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec($CMD)
+          - pattern: Runtime.getRuntime().exec("..." + $VAR + "...")
+          - pattern: ProcessBuilder($CMD)
+          - pattern: ProcessBuilder("..." + $VAR + "...")
+
+  - id: kotlin.security.insecure-webview
+    languages: [kotlin]
+    severity: WARNING
+    message: "WebView with JavaScript enabled and no URL validation. Enable safe browsing and validate URLs."
+    metadata:
+      category: security
+      cwe: ["CWE-749"]
+      owasp: ["A05:2021-Security Misconfiguration"]
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: $WV.settings.javaScriptEnabled = true
+          - pattern: $WV.settings.setJavaScriptEnabled(true)
+          - pattern: webView.settings.javaScriptEnabled = true
+      - pattern-not-inside: |
+          $WV.settings.setSafeBrowsingEnabled(true)
+          ...
+
+  - id: kotlin.security.insecure-file-permissions
+    languages: [kotlin]
+    severity: WARNING
+    message: "File created with world-readable permissions. Use MODE_PRIVATE for sensitive data."
+    metadata:
+      category: security
+      cwe: ["CWE-276"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: openFileOutput($NAME, Context.MODE_WORLD_READABLE)
+          - pattern: openFileOutput($NAME, Context.MODE_WORLD_WRITEABLE)
+          - pattern: openFileOutput($NAME, 1)
+          - pattern: openFileOutput($NAME, 2)
+
+  - id: kotlin.security.hardcoded-credentials
+    languages: [kotlin]
+    severity: ERROR
+    message: "Detected hardcoded credential. Use BuildConfig fields, encrypted SharedPreferences, or a secret manager."
+    metadata:
+      category: security
+      cwe: ["CWE-798"]
+      owasp: ["A07:2021-Identification and Authentication Failures"]
+      confidence: HIGH
+      technology: [kotlin]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              val $VAR = "..."
+          - pattern: |
+              const val $VAR = "..."
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(password|secret|api_key|apikey|token|auth_key)
+
+  - id: kotlin.security.insecure-random
+    languages: [kotlin]
+    severity: WARNING
+    message: "Detected insecure random generation. Use java.security.SecureRandom for cryptography."
+    metadata:
+      category: security
+      cwe: ["CWE-330"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+      confidence: HIGH
+      technology: [kotlin]
+    patterns:
+      - pattern-either:
+          - pattern: Random()
+          - pattern: java.util.Random()
+          - pattern: kotlin.random.Random
+
+  - id: kotlin.security.coroutine-context-leak
+    languages: [kotlin]
+    severity: WARNING
+    message: "Coroutine with unrestricted dispatcher and sensitive data. Use structured concurrency to prevent context leaks."
+    metadata:
+      category: security
+      cwe: ["CWE-200"]
+      owasp: ["A04:2021-Insecure Design"]
+      confidence: MEDIUM
+      technology: [kotlin]
+    patterns:
+      - pattern-either:
+          - pattern: GlobalScope.launch { ... }
+          - pattern: GlobalScope.async { ... }
+
+  - id: kotlin.security.ssl-pinning-disabled
+    languages: [kotlin]
+    severity: ERROR
+    message: "SSL certificate validation disabled or trust-all enabled. Implement certificate pinning."
+    metadata:
+      category: security
+      cwe: ["CWE-295"]
+      owasp: ["A02:2021-Cryptographic Failures"]
+      confidence: HIGH
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: $BUILDER.hostnameVerifier { _, _ -> true }
+          - pattern: $BUILDER.hostnameVerifier(HostnameVerifier { _, _ -> true })
+
+  - id: kotlin.security.exposed-exported-component
+    languages: [kotlin]
+    severity: WARNING
+    message: "Android component exported without permission. Set exported=false or add permission protection."
+    metadata:
+      category: security
+      cwe: ["CWE-927"]
+      owasp: ["A04:2021-Insecure Design"]
+      confidence: MEDIUM
+      technology: [kotlin, android]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              intent-filter {
+                  ...
+              }
+      - pattern-not-inside: |
+          ...
+          permission = "..."
+          ...
+
+  - id: kotlin.security.path-traversal
+    languages: [kotlin]
+    severity: ERROR
+    message: "Detected file operation with user-controlled path. Validate and canonicalize paths."
+    metadata:
+      category: security
+      cwe: ["CWE-22"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [kotlin]
+    patterns:
+      - pattern-either:
+          - pattern: File($USER_INPUT)
+          - pattern: FileInputStream($USER_INPUT)
+          - pattern: java.io.File($USER_INPUT)
+      - pattern-not: File("...")

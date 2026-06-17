@@ -315,6 +315,20 @@ def generate_html_report(summary: dict, findings: list[dict], output_path: str) 
   --text: #1e293b; --text2: #64748b;
 }}
 @media print {{ .no-print {{ display: none; }} body {{ font-size: 12px; }} }}
+@media (prefers-color-scheme: dark) {{
+  :root {{
+    --critical: #ef4444; --high: #f97316; --medium: #fbbf24;
+    --low: #60a5fa; --info: #9ca3af; --pass: #22c55e;
+    --business: #a78bfa;
+    --bg: #1e293b; --surface: #0f172a; --border: #334155;
+    --text: #f1f5f9; --text2: #94a3b8;
+  }}
+  code {{ background: #1e293b; }}
+  .evidence {{ background: #1e293b; }}
+  .finding {{ background: var(--bg); }}
+  tr:hover {{ background: #1e293b; }}
+  th {{ background: #0f172a; }}
+}}
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: var(--text); background: var(--surface); line-height: 1.6; }}
 .container {{ max-width: 1200px; margin: 0 auto; padding: 24px; }}

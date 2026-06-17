@@ -1,0 +1,104 @@
+# SOC 2 — Service Organization Controls (Security, Availability, Confidentiality)
+# Mapped from AICPA Trust Services Criteria (2017)
+
+rules:
+  # CC6.1 / CC6.6 — Logical and Physical Access Controls
+  - id: soc2.access-control-missing-auth
+    languages: [python, javascript, typescript, java]
+    severity: WARNING
+    message: "Endpoint or handler lacks explicit authentication check per SOC 2 CC6.1."
+    metadata:
+      category: compliance
+      cwe: ["CWE-306"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [python, javascript, typescript, java]
+      compliance: ["SOC 2 CC6.1", "SOC 2 CC6.6"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def $F(...):
+                  ...
+                  return $RESP
+          - pattern: |
+              @$ROUTE(...)
+              def $F(...):
+                  ...
+      - pattern-not-inside: |
+          @login_required
+          ...
+      - pattern-not-inside: |
+          @require_auth
+          ...
+
+  # CC7.2 — System Monitoring (logging of security events)
+  - id: soc2.logging-missing-security-events
+    languages: [python, javascript, typescript, java]
+    severity: INFO
+    message: "Security-sensitive operation without logging. Log auth events per SOC 2 CC7.2."
+    metadata:
+      category: compliance
+      cwe: ["CWE-778"]
+      owasp: ["A09:2021-Security Logging and Monitoring Failures"]
+      confidence: LOW
+      technology: [python, javascript, typescript, java]
+      compliance: ["SOC 2 CC7.2"]
+    patterns:
+      - pattern-either:
+          - pattern: $HANDLER.login(...)
+          - pattern: $HANDLER.authenticate(...)
+          - pattern: authenticate_user(...)
+      - pattern-not-inside: |
+          ...
+          logger.info(...)
+          ...
+      - pattern-not-inside: |
+          ...
+          log.info(...)
+          ...
+
+  # CC6.1 — Access enforcement for administrative functions
+  - id: soc2.admin-function-no-role-check
+    languages: [python, javascript, typescript, java]
+    severity: WARNING
+    message: "Admin operation without role verification per SOC 2 CC6.1."
+    metadata:
+      category: compliance
+      cwe: ["CWE-862"]
+      owasp: ["A01:2021-Broken Access Control"]
+      confidence: MEDIUM
+      technology: [python, javascript, typescript, java]
+      compliance: ["SOC 2 CC6.1"]
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$ROUTE("/admin/...")
+              def $F(...):
+                  ...
+          - pattern: |
+              $ROUTER.$METHOD("/admin/...", ...)
+          - pattern: |
+              app.$METHOD("/admin/...", ...)
+      - pattern-not-inside: |
+          ...
+          @require_role("admin")
+          ...
+      - pattern-not-inside: |
+          ...
+          require_admin(...)
+          ...
+
+  # CC7.1 — Vulnerability detection (outdated packages)
+  - id: soc2.dependency-no-pinning
+    languages: [generic]
+    severity: INFO
+    message: "Dependency not pinned to a specific version. Pin exact versions per SOC 2 CC7.1."
+    metadata:
+      category: compliance
+      cwe: ["CWE-1104"]
+      owasp: ["A06:2021-Vulnerable and Outdated Components"]
+      confidence: LOW
+      technology: [python, javascript, typescript]
+      compliance: ["SOC 2 CC7.1"]
+    pattern-regex: "\\^[0-9]"
+    # Matches npm-style caret versions like "^1.2.3" in package.json
