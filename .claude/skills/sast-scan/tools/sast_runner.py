@@ -62,6 +62,15 @@ EXIT_SCAN_FAILURE = 4
 EXIT_REPORT_FAILURE = 5
 EXIT_CONFIG_ERROR = 6
 
+# Environment variables that indicate the process is running inside a CI
+# system. Used to make gate enforcement scenario-aware.
+_CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_HOME", "BUILDKITE", "CIRCLECI", "TF_BUILD")
+
+
+def is_ci_environment() -> bool:
+    """Return True when running inside a detected CI system."""
+    return any(os.environ.get(var) for var in _CI_ENV_VARS)
+
 SKILL_DIR = os.path.dirname(os.path.dirname(__file__))
 DEFAULT_CONFIG_PATH = os.path.join(SKILL_DIR, "config", "default.yml")
 LANGUAGE_FILTERS = {
@@ -247,6 +256,13 @@ def run(args: argparse.Namespace) -> int:
     profile = config.get("profiles", {}).get(profile_name, {})
     fail_on = args.fail_on or profile.get("fail_on", "high")
     formats = args.format.split(",") if args.format else config.get("report", {}).get("formats", ["markdown"])
+
+    # Gate enforcement is scenario-aware: a non-zero exit on blocking findings
+    # only makes sense in CI (or when the user explicitly opts in). In a local,
+    # interactive scan the runner must not "fail" just because it found issues.
+    in_ci = is_ci_environment() or bool(getattr(args, "ci", False))
+    fail_on_explicit = args.fail_on is not None or bool(getattr(args, "ci", False))
+    enforce_gate = in_ci or fail_on_explicit
 
     os.makedirs(os.path.join(output_dir, "logs"), exist_ok=True)
 
@@ -626,8 +642,23 @@ def run(args: argparse.Namespace) -> int:
     logger.info("Scan complete in %ss — %d total, %d new, %d blocking", elapsed, len(all_findings), new_count, blocking_count)
 
     exit_code = get_exit_code(gate_result)
-    if exit_code != 0:
-        logger.warning("CI gate FAILED: %d findings at or above '%s'", blocking_count, fail_on)
+    if not gate_result.get("passed", True):
+        if enforce_gate:
+            logger.warning(
+                "Gate FAILED: %d findings at or above '%s' severity",
+                blocking_count,
+                fail_on,
+            )
+        else:
+            # Local, interactive run: findings exist but we do not fail the
+            # process. Surface the gate status as guidance only.
+            exit_code = EXIT_OK
+            logger.info(
+                "Gate status: %d findings at or above '%s' would fail CI. "
+                "Re-run with --ci (or set --fail-on) to enforce locally.",
+                blocking_count,
+                fail_on,
+            )
     if staged_target:
         staged_target.cleanup()
     return exit_code
@@ -656,6 +687,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--format", dest="format", help="Report format: markdown,json,sarif,all")
     parser.add_argument("--output-dir", help="Output directory (default: .claude/sast/results)")
     parser.add_argument("--fail-on", choices=["low", "medium", "high", "critical"], help="Fail gate on severity")
+    parser.add_argument(
+        "--ci",
+        action="store_true",
+        help="Enforce the gate (non-zero exit on blocking findings) even when not auto-detected as CI",
+    )
     parser.add_argument("--baseline", help="Baseline file path")
     parser.add_argument("--config", help="Config file path")
     parser.add_argument("--tool-timeout", type=int, help="Per-tool timeout in seconds")

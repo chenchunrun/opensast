@@ -130,6 +130,21 @@ def test_load_config_keeps_review_gate_default():
     assert config["gate"]["review_findings_blocking"] is False
 
 
+def test_is_ci_environment_detects_ci(monkeypatch):
+    # Under a recognized CI env var, the runner knows it is in CI.
+    for var in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_HOME"):
+        monkeypatch.delenv(var, raising=False)
+    assert runner.is_ci_environment() is False
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert runner.is_ci_environment() is True
+    monkeypatch.delenv("GITHUB_ACTIONS")
+
+    monkeypatch.setenv("CI", "1")
+    assert runner.is_ci_environment() is True
+    monkeypatch.delenv("CI")
+
+
 def test_load_llm_findings_imports_and_normalizes():
     with tempfile.TemporaryDirectory() as tmpdir:
         llm_path = os.path.join(tmpdir, "llm-findings.json")
