@@ -98,10 +98,14 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: Process.Start($CMD);
-              - pattern: Process.Start($CMD, $ARGS);
               - pattern: new ProcessStartInfo($CMD);
               - pattern: Process.Start(new ProcessStartInfo($CMD));
           - focus-metavariable: $CMD
+      # Two-argument form: the executable ($CMD) is fixed, the injection risk
+      # is in the arguments ($ARGS).
+      - patterns:
+          - pattern: Process.Start($CMD, $ARGS);
+          - focus-metavariable: $ARGS
 
   - id: csharp.security.taint-path-traversal
     languages: [csharp]
@@ -125,11 +129,12 @@ rules:
       - pattern: Request.Form[$KEY]
     pattern-sanitizers:
       - pattern: Path.GetFileName(...)
-      - pattern: Path.Combine("...", ...)
     pattern-propagators:
+      # Path.Combine with a tainted segment does NOT sanitize (../ still
+      # escapes the base), so taint flows through to the combined result.
       - pattern: Path.Combine($BASE, $X)
         from: $X
-        to: $BASE
+        to: ...
       - pattern: $X + $Y
         from: $X
         to: $Y

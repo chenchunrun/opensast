@@ -54,8 +54,11 @@ rules:
           - pattern: $WV.settings.setJavaScriptEnabled(true)
           - pattern: webView.settings.javaScriptEnabled = true
       - pattern-not-inside: |
+          $WV.settings.javaScriptEnabled = true
           $WV.settings.setSafeBrowsingEnabled(true)
-          ...
+      - pattern-not-inside: |
+          $WV.settings.setJavaScriptEnabled(true)
+          $WV.settings.setSafeBrowsingEnabled(true)
 
   - id: kotlin.security.insecure-file-permissions
     languages: [kotlin]

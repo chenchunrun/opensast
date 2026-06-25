@@ -2,9 +2,9 @@
 // CWE-916 / CWE-328: Weak Password Hashing / Weak Crypto
 
 function testWeakPasswordHash(string $password): void {
-    // ruleid: php.security.weak-password-hash
+    // ruleid: php.security.weak-password-hash, php.security.weak-hash-md5
     $hash = md5($password);
-    // ruleid: php.security.weak-password-hash
+    // ruleid: php.security.weak-password-hash, php.security.weak-hash-sha1
     $hash = sha1($password);
 
     // ok: php.security.weak-password-hash
@@ -23,5 +23,6 @@ function testWeakHashData(): void {
     $hash = hash('sha512', 'data');
 
     // ok: php.security.weak-password-hash  (no password keyword in arg)
+    // ruleid: php.security.weak-hash-md5
     $checksum = md5('checksum-value');
 }

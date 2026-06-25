@@ -267,21 +267,21 @@ rules:
       technology: [javascript, typescript, nodejs]
     patterns:
       - pattern: Math.random()
+      # Flag Math.random() when it produces a value (assignment or template),
+      # including chained calls like Math.random().toString(36).substr(...).
       - pattern-either:
           - pattern-inside: |
-              $VAR = Math.random()
+              $VAR = ...
           - pattern-inside: |
-              $VAR = Math.random().toString(...)
-          - pattern-inside: |
-              `...${Math.random()}...`
-          - pattern-inside: |
-              $VAR = ... + Math.random().toString(...)
-          - pattern-inside: |
-              $VAR = Math.random().toString(...) + ...
+              `...`
       - pattern-not-inside: |
-          if (Math.random() < $VAL) { ... }
+          if (...) { ... }
+      - pattern-not-inside: |
+          while (...) { ... }
       - pattern-not-inside: |
           Math.random() * $VAL
+      - pattern-not-inside: |
+          Math.random() < $VAL
 
   - id: javascript.security.timing-attack
     languages: [javascript, typescript]

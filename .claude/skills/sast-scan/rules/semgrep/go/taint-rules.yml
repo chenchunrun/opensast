@@ -22,10 +22,12 @@ rules:
       - pattern: $R.PostFormValue(...)
       - pattern: $R.URL.Query().Get(...)
       - pattern: $R.URL.Query()[$KEY]
-      - pattern: $C.Query(...)
+      # Note: $C.Query(...) / $F.Query(...) are intentionally omitted here.
+      # They collide syntactically with the database Query sink
+      # ($DB.Query(...)), which self-taints every parameterized query.
+      # Gin/Fiber query access via c.Param/c.FormValue is still covered below.
       - pattern: $C.Param(...)
       - pattern: $C.FormValue(...)
-      - pattern: $F.Query(...)
       - pattern: $F.Params(...)
       - pattern: $F.FormValue(...)
     pattern-sanitizers:

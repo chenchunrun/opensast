@@ -54,7 +54,7 @@ session_id($userInput);
 // ok: php.security.session-fixation
 session_id();
 
-// ruleid: php.security.weak-password-hash
+// ruleid: php.security.weak-password-hash, php.security.weak-hash-md5
 md5($password);
 
 // ok: php.security.weak-password-hash

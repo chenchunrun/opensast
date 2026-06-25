@@ -81,12 +81,14 @@ rules:
               - pattern: system($CMD)
               - pattern: exec($CMD)
               - pattern: |
-                  `#$CMD`
-              - pattern: |
                   %x[$CMD]
               - pattern: Open3.capture2($CMD)
               - pattern: Open3.popen3($CMD)
           - focus-metavariable: $CMD
+      # Backtick commands interpolate via #{...}; default taint propagation
+      # flows interpolated vars into the whole command, so match it directly.
+      - pattern: |
+          `...`
 
   - id: ruby.security.taint-path-traversal
     languages: [ruby]
@@ -142,9 +144,6 @@ rules:
       - pattern: params[:$KEY]
       - pattern: params.fetch(:$KEY)
       - pattern: request.env[$KEY]
-    pattern-sanitizers:
-      - pattern: URI.parse(...)
-      - pattern: Addressable::URI.parse(...)
     pattern-propagators:
       - pattern: $X + $Y
         from: $X
@@ -153,14 +152,22 @@ rules:
           "#{$X}"
         from: $X
         to: ...
+      # URI.parse only parses; it does NOT validate against SSRF, so taint
+      # must flow through it into the HTTP sink.
+      - pattern: URI.parse($X)
+        from: $X
+        to: ...
+      - pattern: Addressable::URI.parse($X)
+        from: $X
+        to: ...
     pattern-sinks:
       - patterns:
           - pattern-either:
               - pattern: open($URL)
               - pattern: URI.open($URL)
               - pattern: Kernel.open($URL)
-              - pattern: Net::HTTP.get($URI)
-              - pattern: Net::HTTP.get_response($URI)
+              - pattern: Net::HTTP.get($URL)
+              - pattern: Net::HTTP.get_response($URL)
               - pattern: Net::HTTP.post_form($URI, ...)
               - pattern: RestClient.get($URL)
               - pattern: RestClient.post($URL, ...)
@@ -223,10 +230,6 @@ rules:
       - pattern: params[:$KEY]
       - pattern: cookies[$KEY]
       - pattern: request.env[$KEY]
-    pattern-sanitizers:
-      - by-side-effect: true
-        patterns:
-          - pattern: Base64.decode64(...)
     pattern-propagators:
       - pattern: Base64.decode64($X)
         from: $X

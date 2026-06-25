@@ -232,12 +232,6 @@ rules:
       technology: [php]
     patterns:
       - pattern: md5($ARG)
-      - pattern-not:
-          patterns:
-            - pattern: md5($ARG)
-            - metavariable-regex:
-                metavariable: $ARG
-                regex: (?i).*(pass|password|pwd).*
 
   - id: php.security.weak-hash-sha1
     languages: [php]
@@ -253,12 +247,6 @@ rules:
       technology: [php]
     patterns:
       - pattern: sha1($ARG)
-      - pattern-not:
-          patterns:
-            - pattern: sha1($ARG)
-            - metavariable-regex:
-                metavariable: $ARG
-                regex: (?i).*(pass|password|pwd).*
 
   - id: php.security.insecure-random
     languages: [php]

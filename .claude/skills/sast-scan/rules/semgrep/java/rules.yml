@@ -11,26 +11,13 @@ rules:
         - "A03:2021-Injection"
       confidence: HIGH
       technology: [java]
+    # Match any execute/executeQuery/executeUpdate call whose argument begins
+    # with a string literal concatenated with an identifier/expression. This
+    # catches N-segment concatenation (e.g. "a" + v1 + "b" + v2) that the
+    # previous enumerated structural patterns missed. Prepared statements and
+    # pure-string queries have no leading `"..." +` so they are excluded.
     patterns:
-      - pattern-either:
-          - pattern: |
-              $STMT.executeQuery("..." + $VAR + "...")
-          - pattern: |
-              $STMT.executeQuery("..." + $VAR)
-          - pattern: |
-              $STMT.execute("..." + $VAR + "...")
-          - pattern: |
-              $STMT.execute("..." + $VAR)
-          - pattern: |
-              $STMT.executeUpdate("..." + $VAR + "...")
-          - pattern: |
-              $STMT.executeUpdate("..." + $VAR)
-          - pattern: |
-              $CONN.createStatement().executeQuery("..." + $VAR + "...")
-          - pattern: |
-              $CONN.createStatement().execute("..." + $VAR + "...")
-      - pattern-not: |
-          $STMT.executeQuery("...")
+      - pattern-regex: '\.\s*execute(?:Query|Update)?\s*\(\s*"[^"]*"\s*\+\s*[$A-Za-z_]'
 
   - id: java.security.command-injection-runtime-exec
     languages: [java]

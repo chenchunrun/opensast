@@ -119,9 +119,6 @@ rules:
               - pattern: include_once($PATH)
               - pattern: require($PATH)
               - pattern: require_once($PATH)
-              - pattern: fopen($PATH, ...)
-              - pattern: file_get_contents($PATH)
-              - pattern: file($PATH)
           - focus-metavariable: $PATH
 
   - id: php.security.taint-path-traversal

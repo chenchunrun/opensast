@@ -246,7 +246,7 @@ rules:
       confidence: MEDIUM
       technology: [ruby]
     patterns:
-      - pattern-regex: (?i)\b(password|token|secret|api_key|auth)\w*\s*==\s*
+      - pattern-regex: (?i)\b\w*(password|token|secret|api_key|auth)\w*\s*==\s*
       - pattern-not: |
           secure_compare(...)
 
