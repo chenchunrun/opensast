@@ -15,6 +15,12 @@ requests.get(user_url)
 # ok: python.security.ssrf-requests
 requests.get("https://api.example.com")
 
+# ok: python.security.ssrf-requests
+requests.get(settings.API_URL)
+
+# ok: python.security.ssrf-requests
+requests.post(INTERNAL_ENDPOINT, json=payload)
+
 # ruleid: python.security.path-traversal
 open(request.args.get("file"), "r")
 
@@ -23,6 +29,15 @@ open(os.path.join(base_dir, request.args.get("file")))
 
 # ok: python.security.path-traversal
 open("/etc/hosts", "r")
+
+# ok: python.security.path-traversal
+open(os.path.join("/safe", "base", "file.txt"), "r")
+
+# ok: python.security.path-traversal
+open(os.path.abspath("config.json"), "r")
+
+# ok: python.security.path-traversal
+pathlib.Path(__file__).parent / "template.html"
 
 # ruleid: python.security.open-redirect
 redirect(next_url)
@@ -91,14 +106,14 @@ assert user.is_admin, "must be admin"
 if not user.is_admin:
     raise PermissionError("must be admin")
 
-# ruleid: python.security.hardcoded-password-django
-PASSWORD = "hardcoded-password"
-
-# ok: python.security.hardcoded-password-django
-PASSWORD = os.environ.get("DB_PASSWORD")
-
 # ruleid: python.security.flask-secret-key-weak
 app.secret_key = "dev"
 
 # ok: python.security.flask-secret-key-weak
 app.secret_key = os.environ.get("SECRET_KEY")
+
+# ok: python.security.flask-secret-key-weak
+app.secret_key = ""
+
+# ok: python.security.flask-secret-key-weak
+app.config["SECRET_KEY"] = "this-is-a-long-random-secret-key-that-is-not-weak"

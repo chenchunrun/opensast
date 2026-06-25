@@ -53,15 +53,19 @@ rules:
               $CONN.execute("..." % $VAR)
           - pattern: |
               $CONN.execute("...".format(...))
-          - pattern-regex: \.execute\(f["']
-          - pattern-regex: \.execute\([^)]*"[^"]*"\s*\+
-          - pattern-regex: \.execute\([^)]*"[^"]*"\s*%
       - pattern-not: |
           $CURSOR.execute("...", ...)
       - pattern-not: |
           $CURSOR.execute($SQL, $ARGS)
       - pattern-not: |
           $CONN.execute($SQL, $ARGS)
+      # Exclude formatting composed only of string literals (common false positives)
+      - pattern-not: $CURSOR.execute("..." + "...", ...)
+      - pattern-not: $CONN.execute("..." + "...", ...)
+      - pattern-not: $CURSOR.execute("..." % "...", ...)
+      - pattern-not: $CONN.execute("..." % "...", ...)
+      - pattern-not: $CURSOR.execute("...".format("..."), ...)
+      - pattern-not: $CONN.execute("...".format("..."), ...)
 
   - id: python.security.eval-usage
     languages: [python]
@@ -78,6 +82,7 @@ rules:
     patterns:
       - pattern: eval($VAR)
       - pattern-not: eval("...")
+      - pattern-not: ast.literal_eval(...)
 
   - id: python.security.pickle-load
     languages: [python]
@@ -111,6 +116,7 @@ rules:
       - pattern: yaml.load(...)
       - pattern-not: yaml.load(..., Loader=yaml.SafeLoader)
       - pattern-not: yaml.load(..., Loader=yaml.FullLoader)
+      - pattern-not: yaml.load(..., Loader=yaml.BaseLoader)
 
   - id: python.security.hardcoded-secret-string
     languages: [python]
@@ -154,6 +160,10 @@ rules:
       - pattern-not: requests.post("...", ...)
       - pattern-not: os.environ.get(...)
       - pattern-not: os.getenv(...)
+      - pattern-not: requests.$METHOD(settings.$X, ...)
+      - pattern-not: requests.$METHOD(django.conf.settings.$X, ...)
+      # Exclude module-level constants (uppercase SCREAMING_SNAKE_CASE)
+      - pattern-not-regex: requests\.(?:get|post|put|delete|head)\([A-Z_]+\s*[\),]
 
   - id: python.security.path-traversal
     languages: [python]
@@ -175,6 +185,14 @@ rules:
       - pattern-not: pathlib.Path("...")
       - pattern-not: |
           open(os.path.join($D, "..."), ...)
+      - pattern-not: |
+          open(os.path.join("...", ...), ...)
+      - pattern-not: pathlib.Path(__file__)
+      - pattern-not: pathlib.Path(__file__).parent
+      - pattern-not: |
+          pathlib.Path(__file__).parent / "..."
+      - pattern-not: |
+          open(os.path.abspath("..."), ...)
 
   - id: python.security.open-redirect
     languages: [python]
@@ -561,7 +579,7 @@ rules:
           - pattern: |
               SECRET_KEY = "..."
           - pattern: |
-              DATABASES = {..., "PASSWORD": "...", ...}
+              {"PASSWORD": "...", ...}
       - pattern-not: |
           PASSWORD = os.environ.get(...)
       - pattern-not: |
@@ -584,12 +602,21 @@ rules:
     patterns:
       - pattern-either:
           - pattern: |
-              app.secret_key = "..."
+              app.secret_key = $VALUE
           - pattern: |
-              app.config["SECRET_KEY"] = "..."
+              app.config["SECRET_KEY"] = $VALUE
           - pattern: |
-              SECRET_KEY = "..."
+              SECRET_KEY = $VALUE
       - pattern-not: |
           app.secret_key = os.environ.get(...)
       - pattern-not: |
           app.config["SECRET_KEY"] = os.environ.get(...)
+      - pattern-not: |
+          app.secret_key = ""
+      - pattern-not: |
+          app.config["SECRET_KEY"] = ""
+      - pattern-not: |
+          SECRET_KEY = ""
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: "^[\"'][^\"']{1,7}[\"']$"

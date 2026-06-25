@@ -22,3 +22,6 @@ yaml.load(data, Loader=yaml.SafeLoader)
 
 # ok: python.security.yaml-unsafe-load
 yaml.load(data, Loader=yaml.FullLoader)
+
+# ok: python.security.yaml-unsafe-load
+yaml.load(data, Loader=yaml.BaseLoader)
