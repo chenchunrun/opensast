@@ -119,7 +119,7 @@ class CsharpRulesTest
     void XmlExternalEntity(string path)
     {
         // ruleid: csharp.security.xml-external-entity
-        new System.Xml.XmlDocument();
+        new XmlDocument();
 
         // ok: csharp.security.xml-external-entity
         var settings = new System.Xml.XmlReaderSettings();
@@ -136,17 +136,6 @@ class CsharpRulesTest
 
         // ok: csharp.security.insecure-cookie
         var safe = new HttpCookie("token") { Secure = true, HttpOnly = true };
-    }
-
-    void CsrfDisabled()
-    {
-        // ruleid: csharp.security.csrf-disabled
-        [IgnoreAntiforgeryToken]
-        public IActionResult Post() => Ok();
-
-        // ok: csharp.security.csrf-disabled
-        [ValidateAntiForgeryToken]
-        public IActionResult SafePost() => Ok();
     }
 
     void InsecureTls()

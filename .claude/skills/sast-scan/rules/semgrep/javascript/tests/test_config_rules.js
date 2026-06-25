@@ -38,6 +38,19 @@ const IV = Buffer.from("0123456789abcdef")
 // ok: js.security.hardcoded-iv
 const safeIv = crypto.randomBytes(16)
 
+// ruleid: js.security.hardcoded-iv
+let iv = "0123456789abcdef0123456789abcdef"
+
+// empty/short strings are not IV material
+// ok: js.security.hardcoded-iv
+let body = ''
+// empty/short strings are not IV material
+// ok: js.security.hardcoded-iv
+let fullHtml = ''
+// empty/short strings are not IV material
+// ok: js.security.hardcoded-iv
+let sseBuffer = ''
+
 // ruleid: js.security.ecb-mode
 crypto.createCipheriv("aes-128-ecb", key, null)
 

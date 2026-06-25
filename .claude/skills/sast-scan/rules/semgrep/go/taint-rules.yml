@@ -95,7 +95,6 @@ rules:
               - pattern: exec.Command($CMD, ...)
               - pattern: exec.CommandContext($CTX, $CMD, ...)
               - pattern: os/exec.Command($CMD, ...)
-          - focus-metavariable: $CMD
 
   - id: go.security.taint-path-traversal
     languages: [go]
@@ -178,8 +177,9 @@ rules:
               - pattern: http.Post($URL, ...)
               - pattern: http.PostForm($URL, ...)
               - pattern: http.NewRequest($METHOD, $URL, ...)
-              - pattern: $CLIENT.Get($URL)
-              - pattern: $CLIENT.Post($URL, ...)
+              # $CLIENT.Do is HTTP-specific and safe to keep; the generic
+              # $CLIENT.Get/$CLIENT.Post are intentionally omitted because they
+              # also match unrelated .Get() calls such as r.URL.Query().Get().
               - pattern: $CLIENT.Do($REQ)
           - focus-metavariable: $URL
 

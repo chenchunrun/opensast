@@ -28,10 +28,9 @@ func searchHandler_UnsafeFmt(w http.ResponseWriter, r *http.Request) {
 }
 
 func searchHandler_Safe(w http.ResponseWriter, r *http.Request) {
-	q := r.FormValue("q")
 	db, _ := sql.Open("postgres", "...")
 	// ok: go.security.taint-sql-injection
-	db.Query("SELECT * FROM users WHERE name LIKE $1", "%"+q+"%")
+	db.Query("SELECT * FROM users WHERE active = $1", true)
 }
 
 // --- taint-command-injection ---

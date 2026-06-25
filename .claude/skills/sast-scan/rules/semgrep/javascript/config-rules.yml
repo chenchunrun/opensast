@@ -133,8 +133,21 @@ rules:
               const $IV = Buffer.from("...")
           - pattern: |
               const $IV = new Uint8Array([...])
-          - pattern: |
-              let $IV = "..."
+          # A bare string/number assignment only counts as a hardcoded IV when
+          # the literal looks like IV/key material (hex or base64, 16+ chars).
+          # This avoids flagging innocent empty or short strings such as
+          # `let body = ''`, `let fullHtml = ''`, `let sseBuffer = ''`.
+          - patterns:
+              - pattern-either:
+                  - pattern: |
+                      let $IV = $VAL
+                  - pattern: |
+                      const $IV = $VAL
+                  - pattern: |
+                      var $IV = $VAL
+              - metavariable-regex:
+                  metavariable: $VAL
+                  regex: '(?i)(["''])[0-9a-fA-F]{16,}(["''])'
 
   - id: js.security.ecb-mode
     languages: [javascript, typescript]

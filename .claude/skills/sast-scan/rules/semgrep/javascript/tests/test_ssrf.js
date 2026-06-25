@@ -14,7 +14,11 @@ axios.post(userUrl, data);
 
 // Positive: generic client with user input
 // ruleid: javascript.security.ssrf-fetch
-httpClient.get(userUrl);
+got(userUrl);
+
+// Negative: a Map/Ref .get() call is not an HTTP request
+// ok: javascript.security.ssrf-fetch
+abortControllersRef.current.get(tabId);
 
 // Negative: fetch with literal URL
 // ok: javascript.security.ssrf-fetch

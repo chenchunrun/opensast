@@ -18,11 +18,23 @@ eval(userInput)
 // ok: javascript.security.eval-usage
 eval("2 + 2")
 
-// ruleid: javascript.security.deserialize-unsafe
-JSON.parse(userInput)
+// function-arg timer is not eval
+// ok: javascript.security.eval-usage
+setTimeout(() => controller.abort(), 1000)
+// function-arg timer is not eval
+// ok: javascript.security.eval-usage
+setInterval(() => poll(), 5000)
 
+// ruleid: javascript.security.deserialize-unsafe
+serialize.unserialize(userInput)
+
+// literal arg, not user input
 // ok: javascript.security.deserialize-unsafe
 serialize.unserialize("{}")
+
+// JSON.parse is not code execution
+// ok: javascript.security.deserialize-unsafe
+JSON.parse(userInput)
 
 // ruleid: javascript.security.nosql-injection-mongo
 db.users.find({$where: userInput})

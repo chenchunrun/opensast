@@ -202,11 +202,15 @@ rules:
           - pattern: |
               axios.post($USER_INPUT, ...)
           - pattern: |
-              $CLIENT.get($USER_INPUT)
+              got($USER_INPUT)
+          - pattern: |
+              got.get($USER_INPUT)
           - pattern: |
               http.get($USER_INPUT, ...)
           - pattern: |
               https.get($USER_INPUT, ...)
+          - pattern: |
+              request($USER_INPUT, ...)
       - pattern-not: |
           fetch("...")
       - pattern-not: |
@@ -214,7 +218,9 @@ rules:
       - pattern-not: |
           axios.get("...")
       - pattern-not: |
-          $CLIENT.get("...")
+          got("...")
+      - pattern-not: |
+          http.get("...", ...)
 
   - id: javascript.security.open-redirect
     languages: [javascript, typescript]
@@ -379,17 +385,17 @@ rules:
       - pattern-either:
           - pattern: eval($VAR)
           - pattern: new Function($VAR)
-          - pattern: setTimeout($VAR, ...)
-          - pattern: setInterval($VAR, ...)
+          # NOTE: setTimeout/setInterval are intentionally NOT treated as eval.
+          # A function-arg call like `setTimeout(() => controller.abort(), ms)`
+          # is not code injection; only a string-arg form is eval-equivalent and
+          # that is too weak/common to flag at ERROR severity here.
       - pattern-not: eval("...")
       - pattern-not: new Function("...")
-      - pattern-not: setTimeout("...", ...)
-      - pattern-not: setInterval("...", ...)
 
   - id: javascript.security.deserialize-unsafe
     languages: [javascript, typescript]
     severity: ERROR
-    message: "Detected unsafe deserialization. Validate and sanitize serialized data before deserializing."
+    message: "Detected unsafe deserialization. The node-serialize library executes arbitrary code on untrusted input. Validate input and use a safe format like JSON instead."
     metadata:
       category: security
       cwe:
@@ -399,11 +405,14 @@ rules:
       confidence: HIGH
       technology: [javascript, typescript, nodejs]
     patterns:
+      # NOTE: JSON.parse is intentionally excluded. It parses data only — it
+      # does not instantiate objects or execute code — so it is not CWE-502.
+      # Only library calls that can execute code (node-serialize) belong here.
       - pattern-either:
           - pattern: |
               serialize.unserialize($USER_INPUT)
           - pattern: |
-              JSON.parse($USER_INPUT)
+              serialize.unserializeSync($USER_INPUT)
       - pattern-not: |
           serialize.unserialize("...")
 

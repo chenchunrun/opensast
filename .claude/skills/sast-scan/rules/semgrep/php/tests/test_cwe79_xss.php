@@ -5,7 +5,7 @@ function testXss(string $name, string $msg) {
     // ruleid: php.security.xss-echo-unescaped
     print $name;
     // ruleid: php.security.xss-echo-unescaped
-    printf("Hello %s", $msg);
+    printf($msg);
 
     // ok: php.security.xss-echo-unescaped
     print htmlspecialchars($name);

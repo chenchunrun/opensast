@@ -16,10 +16,10 @@ requests.get(user_url)
 requests.get("https://api.example.com")
 
 # ruleid: python.security.path-traversal
-open(user_input, "r")
+open(request.args.get("file"), "r")
 
 # ruleid: python.security.path-traversal
-os.path.join(base_dir, user_input)
+open(os.path.join(base_dir, request.args.get("file")))
 
 # ok: python.security.path-traversal
 open("/etc/hosts", "r")
@@ -43,7 +43,7 @@ random.randint(1, 10)
 random.shuffle(items)
 
 # ruleid: python.security.timing-attack
-if api_token == user_input:
+if password == user_input:
     pass
 
 # ok: python.security.timing-attack

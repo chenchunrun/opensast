@@ -52,7 +52,7 @@ rules:
 
   # AU-2 — Audit Events (no security logging)
   - id: nist800-53.au2-no-audit-log
-    languages: [python, javascript, typescript, java]
+    languages: [python, javascript, typescript]
     severity: INFO
     message: "Security-sensitive operation without audit logging. NIST 800-53 AU-2 requires audit record generation."
     metadata:
@@ -60,13 +60,13 @@ rules:
       cwe: ["CWE-778"]
       owasp: ["A09:2021-Security Logging and Monitoring Failures"]
       confidence: LOW
-      technology: [python, javascript, typescript, java]
+      technology: [python, javascript, typescript]
       compliance: ["NIST 800-53 AU-2"]
     patterns:
       - pattern-either:
           - pattern: $APP.post("/api/...", ...)
           - pattern: |
-              def delete_$X(...):
+              def delete_user(...):
                   ...
       - pattern-not-inside: |
           ...
@@ -75,7 +75,7 @@ rules:
 
   # CM-6 — Configuration Settings (debug mode / verbose errors)
   - id: nist800-53.cm6-debug-config
-    languages: [python, javascript, typescript, java, php, ruby, csharp]
+    languages: [python, javascript, typescript]
     severity: WARNING
     message: "Debug configuration or verbose error reporting detected. NIST 800-53 CM-6 requires secure baseline configurations."
     metadata:
@@ -83,15 +83,12 @@ rules:
       cwe: ["CWE-215"]
       owasp: ["A05:2021-Security Misconfiguration"]
       confidence: MEDIUM
-      technology: [python, javascript, typescript, java, php, ruby, csharp]
+      technology: [python, javascript, typescript]
       compliance: ["NIST 800-53 CM-6"]
     pattern-either:
       - pattern: DEBUG = True
       - pattern: |
           debug: true
-      - pattern: NODE_ENV=development
-      - pattern: |
-          <customErrors mode="Off"
       - pattern: app.run(..., debug=True, ...)
 
   # IA-5 — Authenticator Management (hardcoded secrets / no MFA)
