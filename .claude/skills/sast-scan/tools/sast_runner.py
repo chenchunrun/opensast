@@ -681,6 +681,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="SAST Runner - Multi-language security scanning orchestrator",
     )
     parser.add_argument("target", nargs="?", default=".", help="Target path to scan (default: .)")
+    parser.add_argument("--target", dest="target_opt", default=None, help="Target path to scan (alias for the positional argument)")
     parser.add_argument("--profile", choices=["quick", "standard", "deep"], help="Scan profile")
     parser.add_argument("--changed-only", action="store_true", help="Scan only changed files")
     parser.add_argument("--lang", default="auto", help="Language filter (default: auto)")
@@ -697,7 +698,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tool-timeout", type=int, help="Per-tool timeout in seconds")
     parser.add_argument("--llm-findings", help="Import LLM findings JSON and merge into final results")
     parser.add_argument("--pr-comment", action="store_true", help="Post results as GitHub PR comment")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    # ``--target`` is the documented/CI interface (README, roadmap, workflows);
+    # the positional form is kept for backward compatibility with tests.
+    if args.target_opt is not None:
+        args.target = args.target_opt
+    return args
 
 
 def main() -> int:
