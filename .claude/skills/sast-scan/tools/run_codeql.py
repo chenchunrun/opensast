@@ -75,13 +75,21 @@ def _resolve_languages(languages: list[str]) -> list[str]:
 
 
 def _detect_java_build(target: str) -> list[str] | None:
+    # Repo-local build descriptors/wrappers take precedence over global
+    # tooling so a Gradle project is not misdetected as Maven when both
+    # ``mvn`` and ``gradle`` are on PATH (e.g. CI runners).
     if os.path.isfile(os.path.join(target, "mvnw")):
         return ["./mvnw", "compile", "-DskipTests", "-q"]
-    if shutil.which("mvn"):
-        return ["mvn", "compile", "-DskipTests", "-q"]
     if os.path.isfile(os.path.join(target, "gradlew")):
         return ["./gradlew", "compileJava", "-x", "test", "-q"]
     if os.path.isfile(os.path.join(target, "build.gradle")) and shutil.which("gradle"):
+        return ["gradle", "compileJava", "-x", "test", "-q"]
+    if os.path.isfile(os.path.join(target, "pom.xml")) and shutil.which("mvn"):
+        return ["mvn", "compile", "-DskipTests", "-q"]
+    # Global fallbacks only when no project-local build descriptor exists.
+    if shutil.which("mvn"):
+        return ["mvn", "compile", "-DskipTests", "-q"]
+    if shutil.which("gradle"):
         return ["gradle", "compileJava", "-x", "test", "-q"]
     return None
 
