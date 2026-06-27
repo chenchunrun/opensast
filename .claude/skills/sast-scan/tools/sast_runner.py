@@ -475,6 +475,28 @@ def run(args: argparse.Namespace) -> int:
             except ValueError:
                 pass
 
+    # Drop findings under configured exclude dirs (e.g. intentionally-vulnerable
+    # demos, rule fixtures, test corpora). Applied tool-agnostically here so
+    # gitleaks/checkov findings are filtered even though only semgrep receives
+    # exclude_dirs at the CLI.
+    exclude_dirs = [d.rstrip("/") for d in config.get("targets", {}).get("exclude", []) if d]
+    if exclude_dirs:
+        before = len(all_findings)
+
+        def _under_excluded(rel_path: str) -> bool:
+            norm = rel_path.replace("\\", "/")
+            if norm.startswith("./"):
+                norm = norm[2:]
+            return any(
+                norm == d or norm.startswith(d + "/")
+                for d in exclude_dirs
+            )
+
+        all_findings = [f for f in all_findings if not _under_excluded(f.get("file", ""))]
+        dropped = before - len(all_findings)
+        if dropped:
+            logger.info("Excluded %d finding(s) under %d configured exclude dir(s).", dropped, len(exclude_dirs))
+
     # Fast deterministic filters (generated code, test code)
     logger.info("Applying fast filters...")
     all_findings = apply_fast_filters(all_findings)

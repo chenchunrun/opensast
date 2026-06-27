@@ -111,6 +111,11 @@ def normalize_semgrep(sarif_data: dict) -> list[dict]:
     findings: list[dict] = []
     for run in sarif_data.get("runs", []):
         for result in run.get("results", []):
+            # Honor SARIF suppressions: semgrep emits inline `# nosemgrep`
+            # suppressions as result.suppressions (kind "inSource"). Without
+            # this, nosemgrep annotations have no effect through the runner.
+            if result.get("suppressions"):
+                continue
             rule_id = result.get("ruleId", "unknown")
             rule_def = _find_rule(run, rule_id, result.get("ruleIndex"))
             rule_level = rule_def.get("defaultConfiguration", {}).get("level", "note")

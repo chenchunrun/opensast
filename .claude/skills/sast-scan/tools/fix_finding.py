@@ -232,7 +232,8 @@ FIX_TEMPLATES: list[tuple[tuple[str, ...], dict[str, Any]]] = [
                 "Disable debug flags in production.",
                 "Restrict CORS to specific origins instead of using wildcard.",
             ],
-            "example_before": 'NEXTAUTH_SECRET = "change-me-secret"',
+            # Intentionally vulnerable example string (demonstrates a secret to fix).
+            "example_before": 'NEXTAUTH_SECRET = "change-me-secret"',  # nosemgrep
             "example_after": 'NEXTAUTH_SECRET = os.environ["NEXTAUTH_SECRET"]  # Must be set before deploy',
         },
     ),

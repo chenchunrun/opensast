@@ -1235,7 +1235,7 @@ def _generate_discover_targets(
                 f"Config files found: {len(config_files)}\n\n"
                 "DISCOVERY ANALYSIS:\n"
                 "1. Check .env for placeholder/unchanged secrets:\n"
-                "   - NEXTAUTH_SECRET='placeholder...' or 'change-me' or 'your-secret-here'\n"
+                "   - NEXTAUTH_SECRET='placeholder...' or 'change-me' or 'your-secret-here'\n"  # nosemgrep
                 "   - ENCRYPTION_KEY='default-encryption-key' or 'changeme'\n"
                 "   - Any secret with value equal to its name or a known placeholder pattern\n"
                 "2. Check next.config for debug/dev flags left enabled\n"
