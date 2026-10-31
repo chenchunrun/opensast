@@ -18,6 +18,7 @@ targets:
     # build on them is meaningless (they exist to exercise the scanner).
     - tests
     - examples
+    - benchmark/datasets
     - .claude/skills/sast-scan/examples
     - .claude/skills/sast-scan/rules
 

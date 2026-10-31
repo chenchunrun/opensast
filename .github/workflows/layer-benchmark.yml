@@ -1,0 +1,35 @@
+name: Whitebox Layer Baseline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rule-baseline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install rule dependencies
+        run: pip install -r requirements.txt semgrep certifi
+      - name: Prepare real baseline and blind Skill packets
+        run: |
+          python3 benchmark/layer_benchmark.py prepare \
+            --dataset benchmark/datasets/whitebox-v1/manifest.json \
+            --output-dir .claude/sast/results-whitebox/run1
+      - name: Report baseline with AI layers pending
+        run: |
+          comparison_status=0
+          python3 benchmark/layer_benchmark.py compare \
+            --dataset benchmark/datasets/whitebox-v1/manifest.json \
+            --run .claude/sast/results-whitebox/run1/rules.json \
+            --output-dir .claude/sast/results-whitebox/comparison || comparison_status=$?
+          test "$comparison_status" -eq 0 || test "$comparison_status" -eq 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whitebox-layer-baseline
+          path: .claude/sast/results-whitebox/

@@ -2,7 +2,7 @@
 name: sast-fix
 description: Generate or apply security fixes for SAST findings using a three-tier workflow (template → LLM → verify). Use when the user asks to fix a specific vulnerability found by /sast-scan.
 when_to_use: Use when the user asks to fix, remediate, or patch a SAST finding, or says "fix this vulnerability".
-argument-hint: "<finding-id|fingerprint> [--apply] [--test] [--generate-test] [--create-branch] [--phase A|B|C]"
+argument-hint: "<finding-id|fingerprint> [--apply --fixed-file FILE] [--test] [--generate-test] [--create-branch] [--phase A|B|C]"
 allowed-tools:
   - Read
   - Grep
@@ -137,7 +137,13 @@ Only when the user provides explicit permission:
    python3 .claude/skills/sast-scan/tools/fix_finding.py <id> --create-branch
    ```
 
-2. **Apply the fix** using Edit tool with the generated code change.
+2. **Apply the fix**: save the reviewed complete replacement source to a UTF-8 file, then run:
+   ```bash
+   python3 .claude/skills/sast-scan/tools/fix_finding.py <id> --apply --fixed-file /tmp/fixed-source.py --test
+   ```
+   The helper backs up the original before writing, then re-scans. `--apply` without
+   `--fixed-file` is an argument error. An existing backup is preserved; rollback
+   before applying another replacement. Apply/verification failures return non-zero.
 
 3. **Verify** with `--test` flag.
 

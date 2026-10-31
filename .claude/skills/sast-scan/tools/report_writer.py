@@ -3,6 +3,8 @@ import os
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from finding_evidence import review_status, assess_evidence, enrich_finding, normalize_verification, summarize_verification
+
 SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 DEEP_ANALYSIS_TOOLS = {"llm-analyzer", "dataflow-analyzer", "rbac-analyzer", "auth-chain-analyzer", "taint-tracker"}
 
@@ -42,10 +44,9 @@ def classify_finding_origin(finding: dict) -> str:
 
 def classify_evidence_strength(finding: dict) -> str:
     evidence = finding.get("evidence") or {}
-    dataflow = evidence.get("dataflow") or []
     has_source = bool(evidence.get("source"))
     has_sink = bool(evidence.get("sink"))
-    if len(dataflow) >= 2:
+    if assess_evidence(finding)["level"] == "static-path":
         return "dataflow-trace"
     if has_source and has_sink:
         return "source-sink"
@@ -57,9 +58,9 @@ def classify_evidence_strength(finding: dict) -> str:
 def resolve_triage_status(finding: dict) -> str:
     if finding.get("is_suppressed"):
         return "suppressed"
-    triage = finding.get("triage") or {}
-    if triage.get("status"):
-        return triage["status"]
+    status = review_status(finding)
+    if status:
+        return status
     confidence_score = finding.get("confidence_score")
     confidence = str(finding.get("confidence", "")).lower()
     if confidence_score is not None and confidence_score <= 0.5:
@@ -110,7 +111,7 @@ def summarize_analysis_enrichment(findings: list[dict]) -> dict:
 def build_enriched_findings(findings: list[dict]) -> list[dict]:
     enriched = []
     for finding in findings:
-        entry = dict(finding)
+        entry = enrich_finding(finding)
         evidence = finding.get("evidence") or {}
         entry["analysis_enrichment"] = {
             "origin": classify_finding_origin(finding),
@@ -134,13 +135,7 @@ def _severity_sort_key(finding: dict) -> int:
 
 
 def _triage_status(finding: dict) -> str | None:
-    triage = finding.get("triage")
-    if isinstance(triage, dict):
-        return triage.get("status")
-    nested = (finding.get("analysis_enrichment") or {}).get("triage")
-    if isinstance(nested, dict):
-        return nested.get("status")
-    return None
+    return review_status(finding)
 
 
 def build_report_next_steps(summary: dict, findings: list[dict]) -> list[str]:
@@ -154,12 +149,13 @@ def build_report_next_steps(summary: dict, findings: list[dict]) -> list[str]:
 
     actionable = [
         f for f in findings
-        if f.get("is_new") and not f.get("is_suppressed") and _triage_status(f) != "false-positive"
+        if f.get("is_new") and not f.get("is_suppressed") and _triage_status(f) not in {"false-positive", "fixed"}
     ]
     top_blockers = sorted(actionable, key=_severity_sort_key, reverse=True)
 
-    if blocking > 0 or severity_counts.get("critical", 0) or severity_counts.get("high", 0):
-        high_count = severity_counts.get("critical", 0) + severity_counts.get("high", 0)
+    high_count = (sum(str(f.get("severity", "")).lower() in {"critical", "high"} for f in actionable)
+                  if findings else severity_counts.get("critical", 0) + severity_counts.get("high", 0))
+    if high_count or (blocking > 0 and (actionable or not findings)):
         steps.append(
             f"**Triage** {high_count} HIGH/CRITICAL finding(s): "
             "`/sast-triage --findings .claude/sast/results/findings.json --focus high --bulk --repo-root .`"
@@ -576,6 +572,17 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
         lines.append(f"| {sev.capitalize()} | {severity_counts.get(sev, 0)} |")
     lines.append("")
 
+    lines.extend(["## Verification Evidence", "", "Review state does not imply runtime exploitability.", "",
+                  "| Finding | Status | Method | Evidence level | Missing evidence | Rationale |",
+                  "|---|---|---|---|---|---|"])
+    for finding in findings:
+        verification = normalize_verification(finding)
+        assessment = assess_evidence(finding)
+        cells = [finding.get("id") or finding.get("rule_id", "unknown"), verification["status"], verification["method"],
+                 assessment["level"], ", ".join(assessment["gaps"]) or "none", verification["rationale"] or "pending review"]
+        lines.append("| " + " | ".join(str(c).replace("|", "\\|").replace("\n", " ") for c in cells) + " |")
+    lines.append("")
+
     lines.extend([
         "## OWASP Top 10 Compliance",
         "",
@@ -690,6 +697,7 @@ def generate_markdown_report(summary: dict, findings: list[dict], output_path: s
 
 
 def generate_json_summary(summary: dict, findings: list[dict], output_path: str) -> dict:
+    findings = [enrich_finding(f) for f in findings]
     score, grade = compute_risk_score(findings)
     enrichment = summarize_analysis_enrichment(findings)
     gate_mode, gate_mode_desc = describe_gate_mode(summary.get("gate_result", {}))
@@ -697,6 +705,7 @@ def generate_json_summary(summary: dict, findings: list[dict], output_path: str)
         "scan_time": datetime.now(timezone.utc).isoformat(),
         "target": summary.get("target", ""),
         "profile": summary.get("profile", ""),
+        "scan_status": summary.get("scan_status", "completed"),
         "languages": summary.get("languages", []),
         "tools_executed": summary.get("tools_executed", []),
         "total_findings": summary.get("total_findings", 0),
@@ -707,6 +716,7 @@ def generate_json_summary(summary: dict, findings: list[dict], output_path: str)
         "risk_grade": grade,
         "compliance": compute_compliance_mapping(findings),
         "analysis_enrichment": enrichment,
+        "verification_summary": summarize_verification(findings),
         "gate_result": summary.get("gate_result", {}),
         "gate_mode": {"mode": gate_mode, "description": gate_mode_desc},
         "tool_errors": summary.get("tool_errors", []),
@@ -744,6 +754,10 @@ def generate_claude_summary(summary: dict, findings: list[dict]) -> str:
         f"Gate mode: {gate_mode} ({gate_mode_desc})",
         "",
     ]
+    if summary.get("scan_status") == "failed":
+        lines[0] = "Scan incomplete: scanner failures prevent a reliable risk assessment. See tool outcomes below."
+    elif summary.get("scan_status") == "skipped":
+        lines[0] = "Scan skipped: no matching changed files; no scanners executed."
     next_steps = summary.get("next_steps") or build_report_next_steps(summary, findings)
     if next_steps:
         lines.append("Next steps:")

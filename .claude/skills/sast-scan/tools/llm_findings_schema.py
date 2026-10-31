@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from finding_evidence import validate_verification
+
 LLM_FINDINGS_SCHEMA_VERSION = "1.0"
 LLM_ANALYSIS_PLAN_SCHEMA_VERSION = "1.0"
 
@@ -43,9 +45,21 @@ def validate_finding_item(item: dict, prefix: str) -> list[str]:
         if not isinstance(evidence, dict):
             errors.append(f"{prefix}: evidence must be an object")
         else:
+            for key in ("source", "sink"):
+                if key in evidence and evidence[key] is not None and not isinstance(evidence[key], str):
+                    errors.append(f"{prefix}: evidence.{key} must be a string")
             dataflow = evidence.get("dataflow", [])
             if dataflow is not None and not isinstance(dataflow, list):
                 errors.append(f"{prefix}: evidence.dataflow must be a list")
+            for key in ("preconditions", "sanitizers", "trust_boundaries"):
+                if key in evidence and (not isinstance(evidence[key], list) or
+                                        not all(isinstance(x, str) for x in evidence[key])):
+                    errors.append(f"{prefix}: evidence.{key} must be a list of strings")
+            if "attacker_control" in evidence and not isinstance(evidence["attacker_control"], str):
+                errors.append(f"{prefix}: evidence.attacker_control must be a string")
+
+    if "verification" in item:
+        errors.extend(f"{prefix}: {err}" for err in validate_verification(item["verification"]))
 
     for key in ("start_line", "end_line"):
         if key in item and item[key] is not None and not isinstance(item[key], int):

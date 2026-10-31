@@ -12,9 +12,9 @@ Three tiny vulnerable projects for trying `/sast-scan` in Claude Code.
 
 ```bash
 # From repo root in Claude Code
-/sast-scan examples/python-sqli --profile quick --format all
-/sast-scan examples/js-xss --profile quick --format all
-/sast-scan examples/go-cmdi --profile quick --format all
+/sast-scan examples/python-sqli --profile quick --no-changed-only --format all
+/sast-scan examples/js-xss --profile quick --no-changed-only --format all
+/sast-scan examples/go-cmdi --profile quick --no-changed-only --format all
 ```
 
 ## Expected artifacts

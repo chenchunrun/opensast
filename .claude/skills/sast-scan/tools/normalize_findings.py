@@ -4,6 +4,8 @@ import hashlib
 import os
 from collections import defaultdict
 
+from finding_evidence import enrich_finding, merge_verification
+
 SEVERITY_MAP_SEMGREP = {"error": "high", "warning": "medium", "note": "info", "none": "info"}
 SEVERITY_MAP_CHECKOV = {"critical": "critical", "high": "high", "medium": "medium", "low": "low", "info": "info", "unknown": "info"}
 SEVERITY_MAP_BANDIT = {"high": "high", "medium": "medium", "low": "low"}
@@ -94,7 +96,7 @@ def _build(
         finding.get("evidence", {}).get("source", "")
     )
     finding["id"] = f"F-{hashlib.sha256(finding['fingerprint'].encode()).hexdigest()[:12]}"
-    return finding
+    return enrich_finding(finding)
 
 
 def _phys(result: dict) -> tuple[dict, str, int, int]:
@@ -384,6 +386,7 @@ def normalize_llm_findings(data: dict | list[dict]) -> list[dict]:
             "confidence_score",
             "reachability",
             "context",
+            "verification",
         ):
             if key in item:
                 finding[key] = item[key]
@@ -392,7 +395,9 @@ def normalize_llm_findings(data: dict | list[dict]) -> list[dict]:
             if key in item:
                 finding[key] = item[key]
 
-        findings.append(finding)
+        if "verification" not in item:
+            finding.pop("verification", None)
+        findings.append(enrich_finding(finding))
 
     return findings
 
@@ -587,9 +592,10 @@ def _merge_group(group: list[dict]) -> dict:
     merged["rule_ids"] = all_rule_ids
     merged["confidence"] = best_conf.get("confidence", "medium")
     merged["evidence"] = best_evidence.get("evidence", {"source": "", "sink": "", "dataflow": []})
+    merged["verification"] = merge_verification(group)
     if len(all_messages) > 1:
         merged["message"] = all_messages[0]
-    return merged
+    return enrich_finding(merged)
 
 
 def deduplicate_findings(findings: list[dict]) -> list[dict]:

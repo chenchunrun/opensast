@@ -9,12 +9,14 @@ Three-tier fix workflow:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -423,6 +425,7 @@ def rerun_targeted_scan(
         scan_target,
         "--profile",
         profile,
+        "--no-changed-only",
         "--format",
         "json",
         "--output-dir",
@@ -481,10 +484,14 @@ def apply_fix(
         return {"applied": False, "error": "No file path in finding"}
 
     abs_path = rel_path if os.path.isabs(rel_path) else os.path.join(repo_root, rel_path)
+    if os.path.commonpath([os.path.realpath(repo_root), os.path.realpath(abs_path)]) != os.path.realpath(repo_root):
+        return {"applied": False, "error": "Finding path is outside the repository"}
     if not os.path.isfile(abs_path):
         return {"applied": False, "error": f"File not found: {abs_path}"}
 
     backup_path = abs_path + backup_suffix
+    if os.path.lexists(backup_path):
+        return {"applied": False, "error": f"Backup already exists; rollback before applying again: {backup_path}"}
 
     # Create backup
     with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
@@ -725,6 +732,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.extend(["```", ""])
 
     apply_info = report.get("apply_info") or {}
+    if apply_info.get("error"):
+        lines.extend(["## Apply failed", apply_info["error"], ""])
     if apply_info.get("applied"):
         lines.extend([
             "## Applied",
@@ -782,6 +791,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--findings", default=".claude/sast/results/findings.json", help="Findings JSON path")
     parser.add_argument("--repo-root", default=".", help="Repository root for reading code context")
     parser.add_argument("--apply", action="store_true", help="Enter fix-apply mode")
+    parser.add_argument("--fixed-file", help="UTF-8 file containing the complete replacement source; requires --apply")
     parser.add_argument("--test", action="store_true", help="Re-run a targeted scan after preparing the fix guidance")
     parser.add_argument("--generate-test", action="store_true", help="Generate a test stub for the finding")
     parser.add_argument("--create-branch", action="store_true", help="Create a git branch for the fix")
@@ -796,6 +806,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.apply and (not args.fixed_file or args.rollback or args.create_branch or args.phase == "B"):
+        parser.error("--apply requires --fixed-file and cannot be combined with --rollback, --create-branch, or --phase B")
+    if args.fixed_file and not args.apply:
+        parser.error("--fixed-file requires --apply")
 
     # Validate identifier: reject shell metacharacters to prevent injection
     # into command suggestions or downstream consumers
@@ -831,27 +845,80 @@ def main(argv: list[str] | None = None) -> int:
             print(output)
         return 0
 
-    rerun_result = None
-    if args.test:
-        rerun_result = rerun_targeted_scan(repo_root, finding, profile=args.test_profile)
-
     report = build_fix_report(
         finding,
         repo_root=repo_root,
         apply_requested=args.apply,
-        rerun_result=rerun_result,
     )
+    exit_code = 0
+    if args.apply:
+        try:
+            with open(args.fixed_file, encoding="utf-8") as f:
+                fixed_content = f.read()
+            report["apply_info"] = apply_fix(repo_root, finding, fixed_content)
+        except (OSError, UnicodeError) as exc:
+            report["apply_info"] = {"applied": False, "error": str(exc)}
+        if not report["apply_info"].get("applied"):
+            exit_code = 1
+
+    rerun_result = None
+    if (args.test or args.phase == "C") and not exit_code:
+        rerun_result = rerun_targeted_scan(repo_root, finding, profile=args.test_profile)
+        report["rerun"] = rerun_result
+        if rerun_result["returncode"] != 0:
+            exit_code = 1
+        else:
+            result_path = os.path.join(rerun_result["output_dir"], "findings.json")
+            try:
+                with open(result_path, encoding="utf-8") as f:
+                    scan_data = json.load(f)
+                source_tool = finding.get("tool")
+                if isinstance(scan_data, dict):
+                    if scan_data.get("scan_status") in {"failed", "skipped"}:
+                        raise ValueError("Verification scan did not complete")
+                    if source_tool and source_tool not in scan_data.get("tools_executed", []):
+                        raise ValueError(f"Verification unavailable: originating scanner {source_tool} did not run successfully; "
+                                         "select a compatible --test-profile and install the required tool")
+                elif source_tool:
+                    raise ValueError(f"Verification unavailable: no execution evidence for {source_tool}")
+                findings_after = load_findings(result_path)
+                report["validation"] = validate_fix(findings, findings_after, finding.get("fingerprint"))
+                if not report["validation"]["resolved"] or report["validation"]["new_findings_count"]:
+                    exit_code = 1
+            except (OSError, ValueError) as exc:
+                report["validation"] = {"resolved": False, "error": str(exc)}
+                exit_code = 1
 
     if args.generate_test:
         stub = generate_test_stub(finding, repo_root)
         report["test_stub"] = stub.get("test_code", "")
+
+    verification = {"schema_version": "1.0", "status": "needs-review", "method": "unreviewed",
+                    "rationale": "Patch has not been verified", "artifacts": []}
+    if rerun_result:
+        verification["method"] = "static-analysis"
+        validation = report.get("validation") or {}
+        if rerun_result["returncode"] != 0 or validation.get("error"):
+            verification.update(status="unavailable", rationale=validation.get("error") or "Verification scanner failed")
+        elif validation.get("resolved") and not validation.get("new_findings_count"):
+            artifact_path = os.path.join(rerun_result["output_dir"], "findings.json")
+            with open(artifact_path, "rb") as f:
+                artifact_hash = hashlib.sha256(f.read()).hexdigest()
+            verification.update(status="fixed", rationale="Originating scanner re-ran; finding absent and no new findings",
+                                verified_at=datetime.now(timezone.utc).isoformat(),
+                                artifacts=[{"kind": "scan", "path": artifact_path, "sha256": artifact_hash}])
+        else:
+            verification["rationale"] = "Finding remains or new findings require review"
+    report["verification"] = verification
 
     fix_result = {
         "fingerprint": finding.get("fingerprint"),
         "finding_id": finding.get("id"),
         "phase": report.get("phase", args.phase),
         "applied": bool(report.get("apply_info", {}).get("applied")),
+        "apply_info": report.get("apply_info"),
         "validation": report.get("validation"),
+        "verification": verification,
         "rerun": rerun_result,
         "rescan_suggestion": (
             "/sast-scan --changed-only --profile quick"
@@ -871,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
             f.write(rendered)
     else:
         print(rendered)
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

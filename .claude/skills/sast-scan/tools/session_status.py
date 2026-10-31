@@ -7,6 +7,8 @@ import json
 import os
 from typing import Any
 
+from finding_evidence import review_status
+
 DEFAULT_RESULTS_DIR = ".claude/sast/results"
 
 PHASE_ORDER = ("scan", "phase_a", "phase_b", "phase_c", "triage", "import", "fix")
@@ -34,14 +36,7 @@ def load_findings(results_dir: str) -> list[dict]:
 
 
 def _triage_status(finding: dict) -> str | None:
-    triage = finding.get("triage")
-    if isinstance(triage, dict):
-        return triage.get("status")
-    enrichment = finding.get("analysis_enrichment", {})
-    nested = enrichment.get("triage")
-    if isinstance(nested, dict):
-        return nested.get("status")
-    return None
+    return review_status(finding)
 
 
 def count_unfixed_high(findings: list[dict]) -> int:
@@ -52,7 +47,7 @@ def count_unfixed_high(findings: list[dict]) -> int:
             continue
         if finding.get("is_suppressed"):
             continue
-        if _triage_status(finding) == "false-positive":
+        if _triage_status(finding) in {"false-positive", "fixed"}:
             continue
         count += 1
     return count

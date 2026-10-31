@@ -14,6 +14,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from finding_evidence import review_status
+
 
 SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
@@ -46,7 +48,9 @@ def _matches_focus(finding: dict, focus: str) -> bool:
 
 
 def _triage_bucket(finding: dict) -> str:
-    triage = (finding.get("triage") or {}).get("status")
+    triage = review_status(finding)
+    if triage == "fixed":
+        return "informational"
     if finding.get("is_suppressed") or triage == "false-positive":
         return "false_positive"
     if triage == "needs-review":
@@ -151,8 +155,15 @@ def apply_triage_verdicts(findings: list[dict], verdicts: list[dict]) -> list[di
         fp = finding.get("fingerprint", "")
         if fp in verdict_map:
             v = verdict_map[fp]
+            if v["verdict"] not in {"TP", "FP"}:
+                raise ValueError("triage verdict must be TP or FP")
             result.append({
                 **finding,
+                "verification": {
+                    "schema_version": "1.0", "status": "false-positive" if v["verdict"] == "FP" else "confirmed",
+                    "method": "manual-review", "rationale": v.get("rationale") or "Explicit triage decision; rationale not supplied",
+                    "reviewer": v.get("reviewer", "triage"), "verified_at": _utcnow_iso(), "artifacts": v.get("artifacts", []),
+                },
                 "triage": {
                     "status": "false-positive" if v["verdict"] == "FP" else "confirmed",
                     "confidence": v.get("confidence", 0.5),
@@ -182,7 +193,7 @@ def auto_suppress_false_positives(
 
     for finding in findings:
         triage = finding.get("triage") or {}
-        if triage.get("status") == "false-positive" and triage.get("confidence", 0) >= 0.7:
+        if review_status(finding) == "false-positive" and triage.get("status") == "false-positive" and triage.get("confidence", 0) >= 0.7:
             fp = finding.get("fingerprint", "")
             if fp:
                 reason = f"LLM triage: {triage.get('rationale', 'Auto-suppressed as false positive')}"
@@ -241,7 +252,7 @@ def export_triage_to_baseline(
 
     for finding in findings:
         triage = finding.get("triage") or {}
-        if triage.get("status") == "false-positive":
+        if review_status(finding) == "false-positive" and triage.get("status") == "false-positive":
             confidence = triage.get("confidence", 0.0)
             if confidence >= min_confidence:
                 fp = finding.get("fingerprint", "")

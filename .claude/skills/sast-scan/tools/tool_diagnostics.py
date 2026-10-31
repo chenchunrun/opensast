@@ -22,9 +22,9 @@ _SKIP_MARKERS = (
     "not installed",
     "no package.json",
     "no cargo.toml",
-    "vendor/bin/phpstan",
-    "not found",
-    "requires",
+    "phpstan not found in vendor/bin",
+    "no supported language",
+    "no iac files",
     "staged subset",
     "does not preserve",
 )
@@ -45,11 +45,18 @@ def fix_command_for_tool(tool: str, reason: str) -> str | None:
 
 
 def normalize_tool_outcome(result: dict) -> dict | None:
-    if result.get("success"):
-        return None
     tool = str(result.get("tool", "unknown"))
-    reason = str(result.get("error_message") or "unknown error")
-    status = classify_outcome_status(reason)
+    exit_code = result.get("exit_code")
+    # SwiftLint exits 2 for serious violations after producing its report:
+    # https://github.com/realm/SwiftLint/blob/main/Source/SwiftLintFramework/LintOrAnalyzeCommand.swift
+    # Brakeman uses 3 for warnings, 1 for an exception:
+    # https://brakemanscanner.org/docs/automation/
+    accepted_codes = {"swiftlint": (0, 2), "brakeman": (0, 3)}.get(tool, (0, 1))
+    fatal_exit = isinstance(exit_code, int) and exit_code not in accepted_codes
+    if result.get("success") and not fatal_exit:
+        return None
+    reason = str(result.get("error_message") or f"{tool} failed (exit code: {exit_code})")
+    status = "failed" if fatal_exit else classify_outcome_status(reason)
     fix_command = fix_command_for_tool(tool, reason)
     return {
         "tool": tool,

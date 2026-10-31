@@ -21,6 +21,12 @@ def test_gate_passes_no_findings():
     assert result["blocking_count"] == 0
 
 
+def test_gate_fails_when_scan_is_incomplete():
+    result = evaluate_gate([], tool_failures=[{"tool": "semgrep", "reason": "parse error"}])
+    assert result["passed"] is False
+    assert result["tool_failures"][0]["tool"] == "semgrep"
+
+
 def test_gate_passes_below_threshold():
     findings = _make_findings(["low", "info"])
     result = evaluate_gate(findings, fail_on="high")

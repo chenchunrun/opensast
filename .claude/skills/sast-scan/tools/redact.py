@@ -89,6 +89,15 @@ def redact_sarif(sarif: dict) -> dict:
 
 
 def redact_findings(findings: list[dict]) -> list[dict]:
+    def redact_metadata(value):
+        if isinstance(value, str):
+            return redact_secrets(value)
+        if isinstance(value, list):
+            return [redact_metadata(item) for item in value]
+        if isinstance(value, dict):
+            return {key: item if key in {"path", "file", "sha256"} else redact_metadata(item) for key, item in value.items()}
+        return value
+
     redacted: list[dict] = []
     for f in findings:
         entry = _deep_copy(f)
@@ -102,6 +111,9 @@ def redact_findings(findings: list[dict]) -> list[dict]:
                 for step in evidence.get("dataflow", [])
             ]
         entry["recommendation"] = redact_secrets(entry.get("recommendation", ""))
+        for key in ("evidence", "verification", "triage"):
+            if key in entry:
+                entry[key] = redact_metadata(entry[key])
         redacted.append(entry)
     return redacted
 

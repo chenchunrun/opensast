@@ -1,5 +1,9 @@
 # OpenSAST Benchmarks
 
+Three-layer whitebox comparison: [LAYER_COMPARISON.md](LAYER_COMPARISON.md).
+It prepares a real rule baseline and compares completed rules / rules+LLM /
+full-session snapshots, with missing AI runs explicitly pending.
+
 ## OWASP Benchmark v1.2 (Java)
 
 Reproduces the official **score = TPR − FPR** metric for OpenSAST Java Semgrep rules.

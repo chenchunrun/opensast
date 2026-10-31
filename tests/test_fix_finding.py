@@ -5,6 +5,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
 
 from fix_finding import (
@@ -321,6 +323,91 @@ class TestApplyFix:
         result = apply_fix("/tmp", {"file": "nonexistent.py"}, "fixed")
         assert result["applied"] is False
 
+    def test_refuses_to_overwrite_existing_backup(self, tmp_path):
+        source = tmp_path / "app.py"
+        source.write_text("original\n")
+        finding = _finding(file="app.py")
+        assert apply_fix(str(tmp_path), finding, "first fix\n")["applied"]
+        assert not apply_fix(str(tmp_path), finding, "second fix\n")["applied"]
+        assert source.read_text() == "first fix\n"
+        assert (tmp_path / "app.py.opensast-bak").read_text() == "original\n"
+
+    def test_rejects_path_outside_repo(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        source = tmp_path / "outside.py"
+        source.write_text("original\n")
+        assert not apply_fix(str(repo), _finding(file="../outside.py"), "fixed\n")["applied"]
+        assert source.read_text() == "original\n"
+
+
+def test_cli_apply_writes_content_then_verifies_and_rolls_back(tmp_path, monkeypatch):
+    import fix_finding as ff
+    original, fixed = "eval(user_input)\n", "print(user_input)\n"
+    source = tmp_path / "app.py"
+    source.write_text(original)
+    replacement = tmp_path / "replacement.py"
+    replacement.write_text(fixed)
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": [_finding(file="app.py", tool="semgrep")]}))
+
+    def verify(*a, **kw):
+        assert source.read_text() == fixed
+        out = tmp_path / "rescan"
+        out.mkdir()
+        (out / "findings.json").write_text(json.dumps({"findings": [], "tools_executed": ["semgrep"]}))
+        return {"returncode": 0, "command": ["scan"], "output_dir": str(out)}
+
+    monkeypatch.setattr(ff, "rerun_targeted_scan", verify)
+    args = ["fp-1", "--findings", str(findings), "--repo-root", str(tmp_path)]
+    assert ff.main(args + ["--apply", "--fixed-file", str(replacement), "--test"]) == 0
+    result = json.loads((tmp_path / ".claude/sast/results/fix-result.json").read_text())
+    assert result["applied"] is True
+    assert result["validation"]["resolved"] is True
+    assert result["verification"]["status"] == "fixed"
+    assert result["verification"]["method"] == "static-analysis"
+    assert len(result["verification"]["artifacts"][0]["sha256"]) == 64
+    assert (tmp_path / "app.py.opensast-bak").read_text() == original
+    assert ff.main(args + ["--rollback"]) == 0
+    assert source.read_text() == original
+
+
+def test_cli_apply_requires_explicit_replacement(tmp_path):
+    import fix_finding as ff
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": [_finding()]}))
+    with pytest.raises(SystemExit) as exc:
+        ff.main(["fp-1", "--findings", str(findings), "--repo-root", str(tmp_path), "--apply"])
+    assert exc.value.code == 2
+
+
+def test_rescan_overrides_quick_changed_only_default(monkeypatch, tmp_path):
+    import fix_finding as ff
+    calls = []
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    monkeypatch.setattr(ff.subprocess, "run", fake_run)
+    rerun_targeted_scan(str(tmp_path), _finding(), profile="quick")
+    assert "--no-changed-only" in calls[0]
+
+
+@pytest.mark.parametrize("tool", ["codeql", "checkov", "bandit"])
+def test_verification_cannot_resolve_finding_when_originating_tool_did_not_run(tmp_path, monkeypatch, tool):
+    import fix_finding as ff
+    findings = tmp_path / "findings.json"
+    findings.write_text(json.dumps({"findings": [_finding(tool=tool)]}))
+    rescan = tmp_path / "rescan"
+    rescan.mkdir()
+    (rescan / "findings.json").write_text(json.dumps({"findings": [], "tools_executed": ["semgrep"]}))
+    monkeypatch.setattr(ff, "rerun_targeted_scan", lambda *a, **k: {
+        "returncode": 0, "command": ["scan"], "output_dir": str(rescan)})
+    assert ff.main(["fp-1", "--findings", str(findings), "--repo-root", str(tmp_path), "--test"]) == 1
+    result = json.loads((tmp_path / ".claude/sast/results/fix-result.json").read_text())
+    assert result["validation"]["resolved"] is False
+    assert tool in result["validation"]["error"]
+    assert result["verification"]["status"] == "unavailable"
+
 
 class TestRollbackFix:
     def test_restores_original_and_removes_backup(self):
@@ -402,6 +489,7 @@ class TestFixResultArtifact:
         findings_path.write_text(json.dumps({"findings": [_finding()]}), encoding="utf-8")
         results_dir = tmp_path / ".claude" / "sast" / "results"
         results_dir.mkdir(parents=True)
+        (results_dir / "findings.json").write_text(json.dumps({"findings": []}), encoding="utf-8")
 
         import fix_finding as ff
 

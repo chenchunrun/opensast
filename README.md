@@ -55,6 +55,10 @@ OpenSAST 采用三层 SAST 架构（Rules + LLM + AI Agent），规则扫描器�
 - **JSON** — 结构化的 `findings.json` 和 `summary.json`
 - **SARIF 2.1.0** — 兼容 GitHub code scanning 的 `merged.sarif`
 
+JSON / Markdown 还记录统一的验证状态和证据缺口，区分审计确认、静态复扫与运行时证明。
+格式见 [漏洞证据契约](docs/finding-evidence-contract.md)。
+三层检测增益的可复现评测见 [对照评测指南](benchmark/LAYER_COMPARISON.md)。
+
 ### 四个 Skill 命令
 
 | 命令 | 用途 |
@@ -107,7 +111,7 @@ OpenSAST 采用三层 SAST 架构（Rules + LLM + AI Agent），规则扫描器�
 
 # ③ 修真问题（先看补丁，确认后应用）
 /sast-fix <fingerprint> --test
-/sast-fix <fingerprint> --apply
+/sast-fix <fingerprint> --apply --fixed-file /tmp/reviewed-source.py
 
 # ④ 验证：只扫改动文件
 /sast-scan . --changed-only --profile quick
@@ -146,6 +150,7 @@ python3 .claude/skills/sast-scan/tools/fix_finding.py <finding-id-or-fingerprint
 Options:
   --profile quick|standard|deep   扫描配置（默认 standard）
   --changed-only                   仅扫描 Git 变更文件
+  --no-changed-only                扫描整个目标，覆盖 quick 的增量扫描默认值
   --format markdown|json|sarif|all 输出格式（默认 markdown）
   --fail-on low|medium|high|critical  阻断阈值
   --lang auto|js|ts|python|...     指定语言（默认 auto 自动检测）
@@ -168,7 +173,7 @@ Options:
 bash scripts/configure-sast-tools.sh
 
 # 2. 扫描示例漏洞代码
-/sast-scan examples/ --profile quick --format markdown
+/sast-scan examples/ --profile quick --no-changed-only --format markdown
 
 # 3. 查看结果
 ls .claude/sast/results/
@@ -203,6 +208,10 @@ pip install -r requirements.txt
 | gosec | 见 [gosec 文档](https://github.com/securego/gosec) | 可选（Go 补充） |
 
 未安装的工具会被自动跳过，不影响其他工具的扫描。
+
+Semgrep 是规则扫描的必需工具：缺失时返回退出码 `3`。扫描器运行失败
+（例如规则解析错误、超时）时返回 `4`，并将门禁标为失败；可选工具缺失仍可跳过。
+`--changed-only` 没有匹配变更时不调用扫描器，JSON 中记录 `scan_status: skipped`。
 
 ### Semgrep 本机运行说明
 

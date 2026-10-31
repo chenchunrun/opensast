@@ -1,0 +1,148 @@
+{
+  "schema_version": "1.0",
+  "id": "whitebox-v1",
+  "description": "Synthetic paired whitebox regression samples; not a real-world effectiveness benchmark.",
+  "cases": [
+    {
+      "id": "WB-001",
+      "file": "case01.py",
+      "start_line": 5,
+      "end_line": 5,
+      "cwe": "CWE-89",
+      "vulnerable": true,
+      "language": "python",
+      "source_sha256": "dcaf83d01573f9aaffe2248e32495591367d066c76dffe65548260fcc8a81451"
+    },
+    {
+      "id": "WB-002",
+      "file": "case02.py",
+      "start_line": 5,
+      "end_line": 5,
+      "cwe": "CWE-89",
+      "vulnerable": false,
+      "language": "python",
+      "source_sha256": "5c28762ef212decbe4268e2abd5223b8b481a02409093e5de7b46d88d3694407"
+    },
+    {
+      "id": "WB-003",
+      "file": "case03.py",
+      "start_line": 6,
+      "end_line": 6,
+      "cwe": "CWE-78",
+      "vulnerable": true,
+      "language": "python",
+      "source_sha256": "d82720d136f9ac11ea7274136d483f7a36cd3494eddbab7163edf99608357e42"
+    },
+    {
+      "id": "WB-004",
+      "file": "case04.py",
+      "start_line": 6,
+      "end_line": 6,
+      "cwe": "CWE-78",
+      "vulnerable": false,
+      "language": "python",
+      "source_sha256": "512d66ce9fadd7eb8641a88536869de1cc60cb276d7222127de243b93891d7de"
+    },
+    {
+      "id": "WB-005",
+      "file": "case05.js",
+      "start_line": 4,
+      "end_line": 4,
+      "cwe": "CWE-78",
+      "vulnerable": true,
+      "language": "javascript",
+      "source_sha256": "1f87fb54a25b0681e48c6905e5826dc621955ec0a7d20d39be70369419d6bb97"
+    },
+    {
+      "id": "WB-006",
+      "file": "case06.js",
+      "start_line": 4,
+      "end_line": 4,
+      "cwe": "CWE-78",
+      "vulnerable": false,
+      "language": "javascript",
+      "source_sha256": "74dc51ebbc428613b5466c79ff4b2383682c4c1fd0822ee911dd77b381de778f"
+    },
+    {
+      "id": "WB-007",
+      "file": "case07.ts",
+      "start_line": 3,
+      "end_line": 3,
+      "cwe": "CWE-89",
+      "vulnerable": true,
+      "language": "typescript",
+      "source_sha256": "343117ef72cae536d9b36099aaae37be5468b4664d7b38939d75060a6b7aad1d"
+    },
+    {
+      "id": "WB-008",
+      "file": "case08.ts",
+      "start_line": 3,
+      "end_line": 3,
+      "cwe": "CWE-89",
+      "vulnerable": false,
+      "language": "typescript",
+      "source_sha256": "d3a2037ceefafc44d292b753b776e1954669ead13d0f80d9a21f04623835680e"
+    },
+    {
+      "id": "WB-009",
+      "file": "case09.java",
+      "start_line": 6,
+      "end_line": 6,
+      "cwe": "CWE-89",
+      "vulnerable": true,
+      "language": "java",
+      "source_sha256": "f8093e3d28f7c8215a9d25a558d5aa896e48048f34886eb62507d5e6dadf808f"
+    },
+    {
+      "id": "WB-010",
+      "file": "case10.java",
+      "start_line": 8,
+      "end_line": 8,
+      "cwe": "CWE-89",
+      "vulnerable": false,
+      "language": "java",
+      "source_sha256": "29bc50687b05c5e767d01ef7664f4553352a4f303412acbcfb0b8ff9c4f15530"
+    },
+    {
+      "id": "WB-011",
+      "file": "case11.java",
+      "start_line": 5,
+      "end_line": 5,
+      "cwe": "CWE-78",
+      "vulnerable": true,
+      "language": "java",
+      "source_sha256": "f9c5db7855c30cd53f1ca7d22f5c2dd37e1f0ede1aa59aafa94ee03459d86114"
+    },
+    {
+      "id": "WB-012",
+      "file": "case12.java",
+      "start_line": 5,
+      "end_line": 5,
+      "cwe": "CWE-78",
+      "vulnerable": false,
+      "language": "java",
+      "source_sha256": "04672f2eef8e0524019219f5032f1672c077b022a7dcdb538b40591c194dd42d"
+    },
+    {
+      "id": "WB-013",
+      "file": "case13.ts",
+      "start_line": 2,
+      "end_line": 2,
+      "cwe": "CWE-639",
+      "vulnerable": true,
+      "language": "typescript",
+      "source_sha256": "30f879b78c6e07cf4a603e6c99f54e5e5203ce1b74f7c9c6007d9a7b0a22412e"
+    },
+    {
+      "id": "WB-014",
+      "file": "case14.ts",
+      "start_line": 2,
+      "end_line": 2,
+      "cwe": "CWE-639",
+      "vulnerable": false,
+      "language": "typescript",
+      "source_sha256": "0d3f1c0a3b6d3e2d389b187d5e1a323d757e4328bed6ab7d472305e1f9047e9b"
+    }
+  ],
+  "unmatched_policy": "unscored"
+}

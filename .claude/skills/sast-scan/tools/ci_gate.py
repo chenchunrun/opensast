@@ -1,5 +1,7 @@
 import logging
 
+from finding_evidence import review_status
+
 logger = logging.getLogger(__name__)
 
 SEVERITY_ORDER = {
@@ -19,6 +21,7 @@ def evaluate_gate(
     fail_on: str = "high",
     baseline_enabled: bool = False,
     review_findings_blocking: bool = False,
+    tool_failures: list[dict] | None = None,
 ) -> dict:
     threshold = SEVERITY_ORDER.get(fail_on, 3)
     blocking = []
@@ -34,7 +37,9 @@ def evaluate_gate(
             continue
         if f.get("is_suppressed", False):
             continue
-        triage_status = (f.get("triage") or {}).get("status")
+        triage_status = review_status(f)
+        if triage_status in {"false-positive", "fixed"}:
+            continue
         if triage_status == "needs-review":
             review_only.append(f)
             if not review_findings_blocking:
@@ -42,7 +47,7 @@ def evaluate_gate(
         if sev_order >= threshold:
             blocking.append(f)
 
-    passed = len(blocking) == 0
+    passed = len(blocking) == 0 and not tool_failures
     result = {
         "passed": passed,
         "fail_on": fail_on,
@@ -58,7 +63,10 @@ def evaluate_gate(
         sev = f.get("severity", "info").lower()
         result["blocking_by_severity"][sev] = result["blocking_by_severity"].get(sev, 0) + 1
 
-    if not passed:
+    if tool_failures:
+        result["tool_failures"] = tool_failures
+        logger.warning("CI gate FAILED: scan incomplete (%d scanner failures)", len(tool_failures))
+    elif not passed:
         logger.warning(
             "CI gate FAILED: %d findings at or above '%s' severity",
             len(blocking),

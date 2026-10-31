@@ -2,7 +2,7 @@
 name: sast-scan
 description: Run multi-language Static Application Security Testing for the current repository or selected paths. Use when the user asks to scan code for vulnerabilities, review security issues, analyze Git changes, generate SARIF, triage findings, or prepare CI security gates.
 when_to_use: Use this skill for SAST, static code analysis, secure code review, vulnerability scanning, Semgrep, Gitleaks, Checkov, SARIF reports, CWE/OWASP mapping, and security fix recommendations.
-argument-hint: "[target] [--profile quick|standard|deep] [--changed-only] [--format markdown|json|sarif|all] [--fail-on low|medium|high|critical]"
+argument-hint: "[target] [--profile quick|standard|deep] [--changed-only|--no-changed-only] [--format markdown|json|sarif|all] [--fail-on low|medium|high|critical]"
 allowed-tools:
   - Read
   - Grep
@@ -33,6 +33,14 @@ You are running a three-tier SAST workflow combining rule engines, LLM analysis,
 - If scanner output and code context disagree, explain the uncertainty.
 - Prioritize actionable findings over noisy findings.
 - **You are the primary analyzer** — rule findings are INPUT, not final output.
+
+Evidence contract: preserve `evidence.source/sink/dataflow` and record attacker
+control, preconditions and existing protections where applicable. Review decisions
+use `verification` v1.0 (`needs-review`, `confirmed`, `false-positive`, `fixed`,
+`unavailable`) with method and rationale. Confidence is not confirmation; static
+evidence is not runtime proof. See `docs/finding-evidence-contract.md` in the
+repository root. For layer evaluation, use `benchmark/LAYER_COMPARISON.md`; only
+actual completed Skill analysis may fill the AI snapshots.
 
 ## Input
 

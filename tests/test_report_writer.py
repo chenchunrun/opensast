@@ -86,6 +86,12 @@ def _make_findings() -> list[dict]:
     ]
 
 
+def test_failed_scan_summary_does_not_claim_success():
+    text = generate_claude_summary(_make_summary(scan_status="failed"), [])
+    assert "Scan incomplete" in text
+    assert "Risk grade: A+" not in text
+
+
 def test_generate_markdown_report():
     with tempfile.TemporaryDirectory() as tmpdir:
         path = os.path.join(tmpdir, "report.md")
