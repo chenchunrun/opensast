@@ -30,7 +30,7 @@
 
 # ③ 修真问题：先 --test 看补丁，确认后 --apply
 /sast-fix <fingerprint> --test
-/sast-fix <fingerprint> --apply
+/sast-fix <fingerprint> --apply --fixed-file /tmp/reviewed-source.py
 
 # ④ 验证：只扫改动文件，确认 TP 清零、无新发现
 /sast-scan . --changed-only --profile quick
@@ -106,6 +106,8 @@ python3 .claude/skills/sast-scan/tools/baseline_manager.py suppress \
 3. **LLM 发现的问题没有规则 fingerprint** —— `/sast-fix` 只能修带 fingerprint 的规则真阳；LLM 新发现需手工改代码。
 4. **工具缺失会静默降级** —— CodeQL/Bandit/Checkov 没装就跳过（带告警），结果不全。生产建议装齐。
 5. **`--target` 与位置参数都支持** —— `sast_runner.py --target .` 和 `sast_runner.py .` 等价（CI/README 用前者）。
+6. **显式子目录目标会改变 `--changed-only` 语义** —— 变更文件先与目标目录求交集（路径按仓库根相对计算）；目标下无变更时自动回退全扫该目录（带 WARNING），不会静默报 0。目标 == 仓库根时保持"无变更即跳过"。
+7. **显式指定排除目录内的目标会覆盖排除** —— `targets.exclude`（如 `examples`、`tests`）只裁剪扫描范围*内部*的子树；`/sast-scan examples/python-sqli` 这类显式目标不受祖先排除影响，findings 与 `merged.sarif` 均一致。
 
 ---
 

@@ -15,6 +15,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(__file__))
 
 from baseline import filter_new_findings, load_baseline, save_baseline
+from finding_evidence import summarize_verification
 from ci_gate import check_trend_gate, evaluate_gate, get_exit_code
 from detect_project import detect_project
 from github_integration import post_pr_comment
@@ -49,7 +50,19 @@ from run_gosec import run_gosec
 from run_phpstan import run_phpstan
 from run_semgrep import run_semgrep
 from run_swiftlint import run_swiftlint
-from sarif_merge import merge_sarif_files, normalize_paths_in_sarif
+from sarif_merge import (
+    filter_sarif_excluded_paths,
+    merge_sarif_files,
+    normalize_paths_in_sarif,
+    remap_sarif_prefixes,
+)
+from scan_scope import (
+    effective_exclude_dirs,
+    get_changed_files,
+    remap_findings_from_staging,
+    relativize_finding_paths,
+    remap_staged_path,
+)
 from llm_orchestrator import apply_fast_filters, generate_analysis_plan, save_analysis_plan
 
 logger = logging.getLogger("sast_runner")
@@ -158,12 +171,17 @@ def _filter_files_by_languages(files: list[str], languages: set[str]) -> list[st
     return [f for f in files if os.path.splitext(f)[1].lower() in allowed_exts]
 
 
-def _stage_scan_subset(target: str, files: list[str]) -> tempfile.TemporaryDirectory | None:
+def _stage_scan_subset(source_root: str, files: list[str]) -> tempfile.TemporaryDirectory | None:
+    """Copy *files* (relative to *source_root*) into a temp dir mirroring the same layout.
+
+    *files* are repo-root-relative, so the staged copy preserves the repo
+    structure and finding paths can be mapped back losslessly.
+    """
     if not files:
         return None
     staged = tempfile.TemporaryDirectory(prefix="opensast-scan-")
     for rel_path in files:
-        source = os.path.join(target, rel_path)
+        source = os.path.join(source_root, rel_path)
         if not os.path.isfile(source):
             continue
         dest = os.path.join(staged.name, rel_path)
@@ -203,27 +221,12 @@ def _load_llm_findings(import_path: str | None, repo_root: str) -> list[dict]:
     return findings
 
 
-def get_changed_files(target: str) -> list[str]:
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", "HEAD"],
-            cwd=target, capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
-    except Exception:
-        pass
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACMR"],
-            cwd=target, capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
-    except Exception:
-        pass
-    return []
+def _remap_staged_path(*args, **kwargs):  # re-exported for tests/back-compat
+    return remap_staged_path(*args, **kwargs)
+
+
+def _effective_exclude_dirs(*args, **kwargs):  # re-exported for tests/back-compat
+    return effective_exclude_dirs(*args, **kwargs)
 
 
 def _collect_sarif_paths(results: list[dict]) -> list[str]:
@@ -283,11 +286,23 @@ def run(args: argparse.Namespace) -> int:
 
     scan_target = target
     changed_files: list[str] = []
-    if args.changed_only or profile.get("changed_only"):
+    changed_only = args.changed_only if args.changed_only is not None else profile.get("changed_only", False)
+    repo_root = project.get("repo_root", target)
+    if changed_only:
         changed_files = get_changed_files(target)
         if not changed_files:
-            logger.info("No changed files detected. Nothing to scan.")
-            changed_files = []
+            target_is_subdir = os.path.normpath(repo_root) != os.path.normpath(target)
+            if target_is_subdir:
+                # Nothing changed under the explicitly requested target.
+                # Skipping would silently report "0 findings, gate PASSED" —
+                # fall back to a full scan of the target instead.
+                logger.warning(
+                    "No changed files under target %s; falling back to a full scan of the target.", target,
+                )
+                changed_only = False
+            else:
+                logger.info("No changed files detected. Nothing to scan.")
+                changed_files = []
         else:
             logger.info("Changed files: %d", len(changed_files))
 
@@ -304,135 +319,150 @@ def run(args: argparse.Namespace) -> int:
     selected_files = changed_files[:] if changed_files else []
     if selected_files and selected_languages:
         selected_files = _filter_files_by_languages(selected_files, selected_languages)
+        if changed_files and not selected_files:
+            logger.warning(
+                "%d changed file(s) exist but none match the --lang filter (%s); skipping scan.",
+                len(changed_files), args.lang,
+            )
+
+    skip_scan = bool(changed_only and not selected_files)
+    if args.lang != "auto" and not selected_languages:
+        skip_scan = True
 
     staged_target: tempfile.TemporaryDirectory | None = None
+    staged_root: str | None = None
     if selected_files:
-        staged_target = _stage_scan_subset(target, selected_files)
+        staged_target = _stage_scan_subset(repo_root, selected_files)
         if staged_target:
             scan_target = staged_target.name
+            staged_root = staged_target.name
             logger.info("Scanning staged subset: %d files", len(selected_files))
 
     tools_config = profile.get("tools", {})
     tool_timeout = args.tool_timeout or config.get("tools", {}).get("semgrep", {}).get("timeout", 300)
     scan_results: list[dict] = []
 
-    if tools_config.get("semgrep", True) or (not tools_config and profile_name != "quick"):
-        logger.info("Running Semgrep...")
-        extra_configs = config.get("rules", {}).get("semgrep", [])
-        config_paths = [c for c in extra_configs if c != "auto"] if extra_configs else None
-        exclude_dirs = config.get("targets", {}).get("exclude", [])
-        result = run_semgrep(
-            scan_target, output_dir,
-            config_paths=config_paths,
-            timeout=tool_timeout,
-            exclude_dirs=exclude_dirs,
-        )
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("Semgrep: %s", result.get("error_message", "failed"))
+    if not skip_scan:
+        if tools_config.get("semgrep", True) or (not tools_config and profile_name != "quick"):
+            logger.info("Running Semgrep...")
+            extra_configs = config.get("rules", {}).get("semgrep", [])
+            config_paths = [c for c in extra_configs if c != "auto"] if extra_configs else None
+            exclude_dirs = config.get("targets", {}).get("exclude", [])
+            result = run_semgrep(
+                scan_target, output_dir,
+                config_paths=config_paths,
+                timeout=tool_timeout,
+                exclude_dirs=exclude_dirs,
+            )
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("Semgrep: %s", result.get("error_message", "failed"))
 
-    if tools_config.get("gitleaks", True):
-        logger.info("Running Gitleaks...")
-        result = run_gitleaks(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("Gitleaks: %s", result.get("error_message", "failed"))
+        if tools_config.get("gitleaks", True):
+            logger.info("Running Gitleaks...")
+            result = run_gitleaks(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("Gitleaks: %s", result.get("error_message", "failed"))
 
-    if tools_config.get("checkov", False) and project.get("iac_files"):
-        logger.info("Running Checkov...")
-        result = run_checkov(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("Checkov: %s", result.get("error_message", "failed"))
+        if tools_config.get("checkov", False) and project.get("iac_files"):
+            logger.info("Running Checkov...")
+            result = run_checkov(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("Checkov: %s", result.get("error_message", "failed"))
 
-    if tools_config.get("codeql", False):
-        logger.info("Running CodeQL...")
-        codeql_config = config.get("tools", {}).get("codeql", {})
-        codeql_timeout = codeql_config.get("timeout", 600)
-        result = run_codeql(
-            scan_target, output_dir,
-            languages=list(detected_languages),
-            query_suite=codeql_config.get("query_suite", "security-extended"),
-            timeout=codeql_timeout,
-            profile=profile_name,
-            enable_cache=codeql_config.get("enable_cache", True),
-            allow_package_manager_builds=codeql_config.get("allow_package_manager_builds", True),
-            allow_repo_build_commands=codeql_config.get("allow_repo_build_commands", False),
-        )
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("CodeQL: %s", result.get("error_message", "failed"))
+        if tools_config.get("codeql", False):
+            logger.info("Running CodeQL...")
+            codeql_config = config.get("tools", {}).get("codeql", {})
+            codeql_timeout = codeql_config.get("timeout", 600)
+            result = run_codeql(
+                scan_target, output_dir,
+                languages=list(detected_languages),
+                query_suite=codeql_config.get("query_suite", "security-extended"),
+                timeout=codeql_timeout,
+                profile=profile_name,
+                enable_cache=codeql_config.get("enable_cache", True),
+                allow_package_manager_builds=codeql_config.get("allow_package_manager_builds", True),
+                allow_repo_build_commands=codeql_config.get("allow_repo_build_commands", False),
+            )
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("CodeQL: %s", result.get("error_message", "failed"))
 
-    if "python" in detected_languages:
-        logger.info("Running Bandit...")
-        result = run_bandit(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("Bandit: %s", result.get("error_message", "failed"))
+        if "python" in detected_languages:
+            logger.info("Running Bandit...")
+            result = run_bandit(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("Bandit: %s", result.get("error_message", "failed"))
 
-    if "go" in detected_languages:
-        logger.info("Running gosec...")
-        if staged_target:
-            logger.info("Skipping gosec on staged subset; requires module/package context")
-            result = {
-                "tool": "gosec",
-                "version": None,
-                "exit_code": None,
-                "sarif_path": None,
-                "json_path": None,
-                "error_message": "gosec skipped for changed-only scan because staged files do not preserve Go module context",
-                "success": False,
-            }
-        else:
-            result = run_gosec(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("gosec: %s", result.get("error_message", "failed"))
+        if "go" in detected_languages:
+            logger.info("Running gosec...")
+            if staged_target:
+                logger.info("Skipping gosec on staged subset; requires module/package context")
+                result = {
+                    "tool": "gosec",
+                    "version": None,
+                    "exit_code": None,
+                    "sarif_path": None,
+                    "json_path": None,
+                    "error_message": "gosec skipped for changed-only scan because staged files do not preserve Go module context",
+                    "success": False,
+                }
+            else:
+                result = run_gosec(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("gosec: %s", result.get("error_message", "failed"))
 
-    if detected_languages & {"javascript", "typescript"}:
-        logger.info("Running ESLint...")
-        result = run_eslint_security(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("ESLint: %s", result.get("error_message", "skipped or failed"))
+        if detected_languages & {"javascript", "typescript"}:
+            logger.info("Running ESLint...")
+            result = run_eslint_security(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("ESLint: %s", result.get("error_message", "skipped or failed"))
 
-    if "ruby" in detected_languages:
-        logger.info("Running Brakeman...")
-        result = run_brakeman(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("Brakeman: %s", result.get("error_message", "skipped or failed"))
+        if "ruby" in detected_languages:
+            logger.info("Running Brakeman...")
+            result = run_brakeman(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("Brakeman: %s", result.get("error_message", "skipped or failed"))
 
-    if detected_languages & {"c", "cpp"}:
-        logger.info("Running cppcheck...")
-        result = run_cppcheck(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("cppcheck: %s", result.get("error_message", "skipped or failed"))
+        if detected_languages & {"c", "cpp"}:
+            logger.info("Running cppcheck...")
+            result = run_cppcheck(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("cppcheck: %s", result.get("error_message", "skipped or failed"))
 
-    if "rust" in detected_languages:
-        logger.info("Running cargo-audit...")
-        result = run_cargo_audit(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("cargo-audit: %s", result.get("error_message", "skipped or failed"))
+        if "rust" in detected_languages:
+            logger.info("Running cargo-audit...")
+            result = run_cargo_audit(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("cargo-audit: %s", result.get("error_message", "skipped or failed"))
 
-    if "swift" in detected_languages:
-        logger.info("Running SwiftLint...")
-        result = run_swiftlint(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("SwiftLint: %s", result.get("error_message", "skipped or failed"))
+        if "swift" in detected_languages:
+            logger.info("Running SwiftLint...")
+            result = run_swiftlint(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("SwiftLint: %s", result.get("error_message", "skipped or failed"))
 
-    if "php" in detected_languages:
-        logger.info("Running PHPStan...")
-        result = run_phpstan(scan_target, output_dir, timeout=tool_timeout)
-        scan_results.append(result)
-        if not result["success"]:
-            logger.warning("PHPStan: %s", result.get("error_message", "skipped or failed"))
+        if "php" in detected_languages:
+            logger.info("Running PHPStan...")
+            result = run_phpstan(scan_target, output_dir, timeout=tool_timeout)
+            scan_results.append(result)
+            if not result["success"]:
+                logger.warning("PHPStan: %s", result.get("error_message", "skipped or failed"))
 
     logger.info("Collecting and normalizing findings...")
     all_findings: list[dict] = []
+
+    def _collect(batch: list[dict]) -> list[dict]:
+        return remap_findings_from_staging(batch, staged_root, repo_root)
 
     for r in scan_results:
         tool = r.get("tool", "")
@@ -446,7 +476,7 @@ def run(args: argparse.Namespace) -> int:
             except (json.JSONDecodeError, OSError):
                 continue
             normalizer = NORMALIZERS.get(tool, normalize_semgrep)
-            all_findings.extend(normalizer(sarif_data))
+            all_findings.extend(_collect(normalizer(sarif_data)))
             continue
 
         if json_path and os.path.isfile(json_path):
@@ -458,7 +488,7 @@ def run(args: argparse.Namespace) -> int:
                     json_data = json.load(fh)
             except (json.JSONDecodeError, OSError):
                 continue
-            all_findings.extend(json_normalizer(json_data))
+            all_findings.extend(_collect(json_normalizer(json_data)))
 
     llm_findings_path = args.llm_findings or config.get("llm_findings", {}).get("import_file")
     if llm_findings_path:
@@ -466,20 +496,17 @@ def run(args: argparse.Namespace) -> int:
 
     all_findings = deduplicate_findings(all_findings)
 
-    repo_root = project.get("repo_root", target)
-    for f in all_findings:
-        file_path = f.get("file", "")
-        if file_path and os.path.isabs(file_path):
-            try:
-                f["file"] = os.path.relpath(file_path, repo_root)
-            except ValueError:
-                pass
-
+    all_findings = relativize_finding_paths(all_findings, repo_root)
     # Drop findings under configured exclude dirs (e.g. intentionally-vulnerable
     # demos, rule fixtures, test corpora). Applied tool-agnostically here so
     # gitleaks/checkov findings are filtered even though only semgrep receives
     # exclude_dirs at the CLI.
     exclude_dirs = [d.rstrip("/") for d in config.get("targets", {}).get("exclude", []) if d]
+    try:
+        target_rel = os.path.relpath(target, repo_root).replace(os.sep, "/")
+    except ValueError:
+        target_rel = "."
+    exclude_dirs = _effective_exclude_dirs(exclude_dirs, target_rel)
     if exclude_dirs:
         before = len(all_findings)
 
@@ -519,26 +546,39 @@ def run(args: argparse.Namespace) -> int:
     merged_sarif_path = os.path.join(output_dir, "merged.sarif")
     if sarif_paths:
         merged = merge_sarif_files(sarif_paths, merged_sarif_path)
-        merged = normalize_paths_in_sarif(merged, project.get("repo_root", target))
+        merged = remap_sarif_prefixes(merged, staged_root, repo_root)
+        merged = normalize_paths_in_sarif(merged, repo_root)
+        # Keep the SARIF deliverable consistent with the gated findings.
+        merged = filter_sarif_excluded_paths(merged, exclude_dirs)
         merged = redact_sarif(merged)
         with open(merged_sarif_path, "w", encoding="utf-8") as fh:
             json.dump(merged, fh, indent=2)
+
+    tool_outcomes = collect_tool_outcomes(scan_results)
+    unsuccessful_tools = {o["tool"] for o in tool_outcomes}
+    tools_executed = [r["tool"] for r in scan_results if r.get("success") and r["tool"] not in unsuccessful_tools]
+    tool_failures = [o for o in tool_outcomes if o["status"] == "failed" or o["tool"] == "semgrep"]
 
     gate_result = evaluate_gate(
         all_findings,
         fail_on=fail_on,
         baseline_enabled=baseline_enabled,
         review_findings_blocking=config.get("gate", {}).get("review_findings_blocking", False),
+        tool_failures=tool_failures,
     )
     blocking_count = gate_result.get("blocking_count", 0)
 
-    tools_executed = [r["tool"] for r in scan_results if r.get("success")]
-    tool_outcomes = collect_tool_outcomes(scan_results)
+    scan_exit_code = EXIT_OK
+    if tool_failures:
+        missing_primary = any(o["tool"] == "semgrep" and "not installed" in o["reason"].lower()
+                              for o in tool_failures)
+        scan_exit_code = EXIT_TOOL_MISSING if missing_primary else EXIT_SCAN_FAILURE
     elapsed = round(time.time() - start_time, 1)
 
     summary = {
         "target": target,
         "profile": profile_name,
+        "scan_status": "skipped" if skip_scan else ("failed" if tool_failures else "completed"),
         "scan_time": f"{elapsed}s",
         "languages": list(project.get("languages", {}).keys()),
         "tools_executed": tools_executed,
@@ -550,12 +590,13 @@ def run(args: argparse.Namespace) -> int:
         "tool_outcomes": tool_outcomes,
         "tool_errors": tool_outcomes,
         "analysis_enrichment": summarize_analysis_enrichment(all_findings),
+        "verification_summary": summarize_verification(all_findings),
     }
     triage_counts = summary["analysis_enrichment"].get("by_triage", {})
     summary["review_findings"] = triage_counts.get("needs-review", 0)
     summary["suppressed_findings"] = triage_counts.get("suppressed", 0)
 
-    if profile_name in ("standard", "deep"):
+    if not skip_scan and profile_name in ("standard", "deep"):
         logger.info("Generating LLM analysis plan...")
         try:
             llm_plan = generate_analysis_plan(
@@ -663,8 +704,10 @@ def run(args: argparse.Namespace) -> int:
 
     logger.info("Scan complete in %ss — %d total, %d new, %d blocking", elapsed, len(all_findings), new_count, blocking_count)
 
-    exit_code = get_exit_code(gate_result)
-    if not gate_result.get("passed", True):
+    exit_code = scan_exit_code or get_exit_code(gate_result)
+    if scan_exit_code:
+        logger.error("Scan incomplete: %d scanner failure(s); exit code %d", len(tool_failures), scan_exit_code)
+    elif not gate_result.get("passed", True):
         if enforce_gate:
             logger.warning(
                 "Gate FAILED: %d findings at or above '%s' severity",
@@ -705,7 +748,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("target", nargs="?", default=".", help="Target path to scan (default: .)")
     parser.add_argument("--target", dest="target_opt", default=None, help="Target path to scan (alias for the positional argument)")
     parser.add_argument("--profile", choices=["quick", "standard", "deep"], help="Scan profile")
-    parser.add_argument("--changed-only", action="store_true", help="Scan only changed files")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--changed-only", dest="changed_only", action="store_true", help="Scan only changed files")
+    scope.add_argument("--no-changed-only", dest="changed_only", action="store_false",
+                       help="Scan all target files, overriding the profile default")
+    parser.set_defaults(changed_only=None)
     parser.add_argument("--lang", default="auto", help="Language filter (default: auto)")
     parser.add_argument("--format", dest="format", help="Report format: markdown,json,sarif,all")
     parser.add_argument("--output-dir", help="Output directory (default: .claude/sast/results)")

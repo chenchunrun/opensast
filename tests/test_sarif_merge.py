@@ -7,7 +7,13 @@ import tempfile
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
 
-from sarif_merge import load_sarif, merge_sarif_files, normalize_paths_in_sarif
+from sarif_merge import (
+    filter_sarif_excluded_paths,
+    load_sarif,
+    merge_sarif_files,
+    normalize_paths_in_sarif,
+    remap_sarif_prefixes,
+)
 
 
 def _make_sarif(tool_name: str = "test-tool", rules: list | None = None, results: list | None = None) -> dict:
@@ -114,3 +120,65 @@ def test_normalize_paths():
     result = normalize_paths_in_sarif(sarif, "/home/user/project")
     loc_uri = result["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
     assert loc_uri == "src/app.py"
+
+
+def test_remap_sarif_prefixes_rewrites_staged_paths():
+    staged = os.path.join(tempfile.gettempdir(), "opensast-scan-abc")
+    repo = "/home/user/project"
+    sarif = _make_sarif(results=[{
+        "ruleId": "R1",
+        "level": "error",
+        "locations": [{
+            "physicalLocation": {
+                "artifactLocation": {"uri": os.path.join(staged, "pkg", "app.py")},
+                "region": {"startLine": 3},
+            }
+        }],
+    }])
+
+    result = remap_sarif_prefixes(sarif, staged, repo)
+    uri = result["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == os.path.join(repo, "pkg", "app.py")
+    # original dict untouched
+    original_uri = sarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert original_uri.startswith(staged)
+
+
+def test_remap_sarif_prefixes_without_staged_root_is_noop():
+    sarif = _make_sarif(results=[{"ruleId": "R1"}])
+    assert remap_sarif_prefixes(sarif, None, "/repo") is sarif
+
+
+def test_remap_sarif_prefixes_leaves_outside_paths_alone():
+    sarif = _make_sarif(results=[{
+        "ruleId": "R1",
+        "locations": [{
+            "physicalLocation": {"artifactLocation": {"uri": "/elsewhere/app.py"}}
+        }],
+    }])
+    result = remap_sarif_prefixes(sarif, "/tmp/opensast-scan-abc", "/repo")
+    uri = result["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "/elsewhere/app.py"
+
+
+def test_filter_sarif_excluded_paths_drops_excluded_results():
+    def result_with_uri(rule_id: str, uri: str) -> dict:
+        return {
+            "ruleId": rule_id,
+            "level": "error",
+            "locations": [{
+                "physicalLocation": {"artifactLocation": {"uri": uri}, "region": {"startLine": 1}}
+            }],
+        }
+
+    sarif = _make_sarif(results=[
+        result_with_uri("R1", "pkg/app.py"),
+        result_with_uri("R2", "examples/pkg/app.py"),
+        result_with_uri("R3", "examples_app.py"),  # prefix collision guard
+    ])
+    filtered = filter_sarif_excluded_paths(sarif, ["examples"])
+    uris = [r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+            for r in filtered["runs"][0]["results"]]
+    assert sorted(uris) == ["examples_app.py", "pkg/app.py"]
+    # original untouched
+    assert len(sarif["runs"][0]["results"]) == 3

@@ -52,6 +52,103 @@ def _normalize_uri_in_location(location: dict, repo_root: str) -> dict:
     return location
 
 
+def _rewrite_staged_uri(uri: str, staged_root: str, repo_root: str) -> str:
+    """Map an absolute artifact URI under *staged_root* onto *repo_root*.
+
+    Changed-only scans run the tools against a staged temp copy that mirrors
+    the repo layout. Absolute URIs pointing into that copy would otherwise be
+    unrepresentable as repo-relative paths downstream.
+    """
+    if not uri:
+        return uri
+    candidate = uri[7:] if uri.startswith("file://") else uri
+    if not os.path.isabs(candidate):
+        return uri
+    norm = os.path.normpath(candidate)
+    if norm == staged_root or norm.startswith(staged_root + os.sep):
+        return os.path.join(repo_root, os.path.relpath(norm, staged_root))
+    return uri
+
+
+def remap_sarif_prefixes(sarif: dict, staged_root: str | None, repo_root: str) -> dict:
+    """Rewrite artifact URIs from a staged scan copy back to repo coordinates."""
+    if not staged_root:
+        return sarif
+    sarif = json.loads(json.dumps(sarif))
+    staged_root = os.path.normpath(os.path.abspath(staged_root))
+    repo_root = os.path.normpath(os.path.abspath(repo_root))
+
+    def rewrite_loc(location: dict) -> None:
+        phys = location.get("physicalLocation", {})
+        artifact = phys.get("artifactLocation", {})
+        new_uri = _rewrite_staged_uri(artifact.get("uri", ""), staged_root, repo_root)
+        if new_uri != artifact.get("uri"):
+            artifact["uri"] = new_uri
+
+    for run in sarif.get("runs", []):
+        for val in run.get("originalUriBaseIds", {}).values():
+            uri = val.get("uri", "")
+            new_uri = _rewrite_staged_uri(uri, staged_root, repo_root)
+            if new_uri != uri:
+                val["uri"] = new_uri
+
+        for result in run.get("results", []):
+            for loc in result.get("locations", []):
+                rewrite_loc(loc)
+            for flow in result.get("codeFlows", []):
+                for tf in flow.get("threadFlows", []):
+                    for loc in tf.get("locations", []):
+                        rewrite_loc(loc.get("location", {}))
+            for fix in result.get("fixes", []):
+                for change in fix.get("artifactChanges", []):
+                    artifact = change.get("artifactLocation", {})
+                    new_uri = _rewrite_staged_uri(artifact.get("uri", ""), staged_root, repo_root)
+                    if new_uri != artifact.get("uri"):
+                        artifact["uri"] = new_uri
+
+        for artifact in run.get("artifacts", []):
+            location = artifact.get("location", {})
+            uri = location.get("uri", "")
+            new_uri = _rewrite_staged_uri(uri, staged_root, repo_root)
+            if new_uri != uri:
+                location["uri"] = new_uri
+
+    return sarif
+
+
+def filter_sarif_excluded_paths(sarif: dict, exclude_dirs: list[str]) -> dict:
+    """Drop SARIF results whose (repo-relative) artifact path is under an exclude dir.
+
+    Mirrors the runner's finding-level exclude filter so the SARIF deliverable
+    (e.g. GitHub code scanning upload) matches the gated/report findings.
+    Heuristic filters (generated/test code, baselines) stay findings-level only.
+    """
+    excludes = [d.strip("/") for d in exclude_dirs if d and d.strip("/")]
+    if not excludes:
+        return sarif
+
+    sarif = json.loads(json.dumps(sarif))
+
+    def _excluded(uri: str) -> bool:
+        path = uri.replace("\\", "/")
+        if path.startswith("./"):
+            path = path[2:]
+        return any(path == d or path.startswith(d + "/") for d in excludes)
+
+    for run in sarif.get("runs", []):
+        kept = []
+        for result in run.get("results", []):
+            uris = [
+                loc.get("physicalLocation", {}).get("artifactLocation", {}).get("uri", "")
+                for loc in result.get("locations", [])
+            ]
+            if any(_excluded(uri) for uri in uris if uri):
+                continue
+            kept.append(result)
+        run["results"] = kept
+    return sarif
+
+
 def normalize_paths_in_sarif(sarif: dict, repo_root: str) -> dict:
     sarif = json.loads(json.dumps(sarif))
 

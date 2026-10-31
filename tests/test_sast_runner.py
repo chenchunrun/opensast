@@ -1,10 +1,14 @@
 """Tests for scanner wrappers and runner helpers."""
 
 import json
+import logging
 import os
 import sys
 import tempfile
 from argparse import Namespace
+from unittest.mock import Mock
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".claude", "skills", "sast-scan", "tools"))
 
@@ -13,9 +17,93 @@ from run_checkov import run_checkov
 from run_codeql import run_codeql
 from run_gitleaks import run_gitleaks
 from run_gosec import run_gosec
-from run_semgrep import run_semgrep
+from run_semgrep import get_semgrep_binary, run_semgrep
 import sast_runner as runner
 from sast_runner import _filter_files_by_languages, _load_llm_findings, _resolve_language_filter, load_config, parse_args
+
+
+@pytest.fixture
+def runner_probe(monkeypatch, tmp_path):
+    target = tmp_path / "repo"
+    target.mkdir()
+    (target / "app.py").write_text("print('hello')\n")
+    config = {
+        "profiles": {"standard": {"tools": {"semgrep": True, "gitleaks": False}},
+                     "quick": {"changed_only": True, "tools": {"semgrep": True, "gitleaks": False}}},
+        "baseline": {"enabled": False}, "history": {"enabled": False},
+    }
+    monkeypatch.setattr(runner, "load_config", lambda _: config)
+    monkeypatch.setattr(runner, "save_scan_result", lambda *a: "probe")
+    semgrep = Mock(return_value={"tool": "semgrep", "success": True, "exit_code": 0})
+    monkeypatch.setattr(runner, "run_semgrep", semgrep)
+    bandit = Mock(return_value={"tool": "bandit", "success": False, "error_message": "not installed"})
+    monkeypatch.setattr(runner, "run_bandit", bandit)
+    args = parse_args(["--target", str(target), "--profile", "standard", "--format", "all",
+                       "--output-dir", str(tmp_path / "results")])
+    return args, semgrep, bandit
+
+
+@pytest.mark.parametrize("ci", [False, True])
+@pytest.mark.parametrize("error", ["scanner crashed", "query file not found"])
+@pytest.mark.parametrize("reported_success", [False, True])
+def test_scanner_failure_never_passes_gate(runner_probe, ci, error, reported_success):
+    args, scanner, _ = runner_probe
+    args.ci = ci
+    scanner.return_value = {"tool": "semgrep", "success": reported_success, "exit_code": 2, "error_message": error}
+    assert runner.run(args) == runner.EXIT_SCAN_FAILURE
+    with open(os.path.join(args.output_dir, "summary.json")) as f:
+        summary = json.load(f)
+    assert summary["gate_result"]["passed"] is False
+    assert summary["scan_status"] == "failed"
+    assert summary["gate_result"]["tool_failures"]
+
+
+def test_missing_primary_scanner_is_error(runner_probe):
+    args, scanner, _ = runner_probe
+    scanner.return_value = {"tool": "semgrep", "success": False, "exit_code": None,
+                            "error_message": "semgrep is not installed"}
+    assert runner.run(args) == runner.EXIT_TOOL_MISSING
+
+
+def test_missing_optional_scanner_is_advisory(runner_probe):
+    args, _, _ = runner_probe
+    assert runner.run(args) == 0
+
+
+@pytest.mark.parametrize("profile", ["standard", "quick"])
+def test_empty_changes_skip_all_scanners(runner_probe, monkeypatch, profile):
+    args, scanner, bandit = runner_probe
+    args.profile = profile
+    args.changed_only = True
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: [])
+    assert runner.run(args) == 0
+    scanner.assert_not_called()
+    bandit.assert_not_called()
+    with open(os.path.join(args.output_dir, "summary.json")) as f:
+        assert json.load(f)["scan_status"] == "skipped"
+
+
+def test_language_filtered_changes_skip_scanners(runner_probe, monkeypatch):
+    args, scanner, _ = runner_probe
+    args.changed_only = True
+    args.lang = "python"
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: ["README.md"])
+    assert runner.run(args) == 0
+    scanner.assert_not_called()
+
+
+def test_quick_can_explicitly_scan_all_files(runner_probe, monkeypatch):
+    args, scanner, _ = runner_probe
+    args.profile = "quick"
+    args.changed_only = False
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: [])
+    assert runner.run(args) == 0
+    scanner.assert_called_once()
+
+
+def test_parse_explicit_full_scan_override():
+    assert parse_args(["--profile", "quick", "--no-changed-only"]).changed_only is False
+    assert parse_args(["--profile", "quick"]).changed_only is None
 
 
 def _assert_tool_result(result: dict, tool_name: str):
@@ -76,19 +164,22 @@ def test_gosec_not_installed():
             assert "not installed" in (result.get("error_message") or "")
 
 
+@pytest.mark.skipif(not get_semgrep_binary(), reason="Semgrep not installed")
 def test_semgrep_scan_on_fixture():
     fixture = os.path.join(os.path.dirname(__file__), "fixtures", "vulnerable-python")
     if not os.path.isdir(fixture):
         return
     with tempfile.TemporaryDirectory() as tmpdir:
-        result = run_semgrep(fixture, tmpdir)
-        if result["success"]:
-            assert result["sarif_path"] is not None
-            assert os.path.isfile(result["sarif_path"])
-            with open(result["sarif_path"]) as f:
-                sarif = json.load(f)
-            assert sarif["version"] == "2.1.0"
-            assert len(sarif["runs"]) > 0
+        rules = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".claude", "skills",
+                                             "sast-scan", "rules", "semgrep"))
+        result = run_semgrep(fixture, tmpdir, config_paths=[rules], timeout=30)
+        assert result["success"], result["error_message"]
+        assert result["sarif_path"] is not None
+        assert os.path.isfile(result["sarif_path"])
+        with open(result["sarif_path"]) as f:
+            sarif = json.load(f)
+        assert sarif["version"] == "2.1.0"
+        assert len(sarif["runs"]) > 0
 
 
 def test_language_filter_resolution():
@@ -336,3 +427,259 @@ def test_run_merges_external_llm_findings_end_to_end(monkeypatch):
         assert summary_json["llm_analysis_targets"] == 1
         assert summary_json["llm_discovery_targets"] == 1
         assert summary_json["project_archetype"] == "web-app"
+
+
+# ---------------------------------------------------------------------------
+# changed-only scoping + staged-subset path handling
+# ---------------------------------------------------------------------------
+
+import pathlib
+import subprocess as sp
+
+_CLT_ROOT = "/Library/Developer/CommandLineTools"
+
+
+def _ensure_usable_git(monkeypatch) -> None:
+    """Make `git` usable for subprocesses, or skip the test.
+
+    On macOS without a selected developer directory, /usr/bin/git is a shim
+    that fails. CommandLineTools usually exists on disk; pointing
+    DEVELOPER_DIR at it restores the shim without touching the system config.
+    """
+    probe = sp.run(["git", "--version"], capture_output=True)
+    if probe.returncode == 0:
+        return
+    if os.path.isfile(os.path.join(_CLT_ROOT, "usr", "bin", "git")):
+        monkeypatch.setenv("DEVELOPER_DIR", _CLT_ROOT)
+        return
+    pytest.skip("no usable git binary on this machine")
+
+
+def _init_git_repo(repo):
+    def git(*args):
+        sp.run(
+            ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+            check=True, capture_output=True,
+        )
+
+    (repo / "examples" / "demo").mkdir(parents=True, exist_ok=True)
+    (repo / "app.py").write_text("x = 1\n")
+    (repo / "examples" / "demo" / "vuln.py").write_text("y = 2\n")
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+    (repo / "app.py").write_text("x = 2\n")
+    (repo / "examples" / "demo" / "vuln.py").write_text("y = 3\n")
+    return repo
+
+
+def test_get_changed_files_scoped_to_target(tmp_path, monkeypatch):
+    _ensure_usable_git(monkeypatch)
+    repo = _init_git_repo(tmp_path / "repo")
+
+    from_root = runner.get_changed_files(str(repo))
+    assert "app.py" in from_root
+    assert "examples/demo/vuln.py" in from_root
+
+    from_subdir = runner.get_changed_files(str(repo / "examples" / "demo"))
+    # Paths stay repo-root-relative so staging/reporting keep one coordinate system.
+    assert from_subdir == ["examples/demo/vuln.py"]
+
+
+def test_get_changed_files_outside_git_repo(tmp_path):
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    (plain / "app.py").write_text("x = 1\n")
+    assert runner.get_changed_files(str(plain)) == []
+
+
+def test_changed_only_subdir_target_falls_back_to_full_scan(runner_probe, monkeypatch, tmp_path):
+    args, scanner, _ = runner_probe
+    sub = tmp_path / "pkg"
+    sub.mkdir()
+    (sub / "app.py").write_text("x = 1\n")
+    args.target = str(sub)
+    args.profile = "quick"
+    args.changed_only = True
+    monkeypatch.setattr(runner, "detect_project", lambda _: {
+        "languages": {"python": 100}, "frameworks": [], "repo_root": str(tmp_path),
+        "is_git_repo": True, "iac_files": [],
+    })
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: [])
+
+    assert runner.run(args) == 0
+    scanner.assert_called_once()
+    with open(os.path.join(args.output_dir, "summary.json")) as f:
+        assert json.load(f)["scan_status"] == "completed"
+
+
+def _make_fake_semgrep_sarif(target: str) -> dict:
+    """One finding per .py file actually present under *target* (absolute URIs).
+
+    Each result carries a codeFlow pointing back into the same tree so the
+    evidence-dataflow path remapping is exercised too.
+    """
+    py_files = sorted(str(p) for p in pathlib.Path(target).rglob("*.py"))
+    results = [{
+        "ruleId": "python.sql-injection",
+        "level": "error",
+        "locations": [{
+            "physicalLocation": {
+                "artifactLocation": {"uri": uri},
+                "region": {"startLine": 1, "endLine": 1},
+            }
+        }],
+        "codeFlows": [{
+            "threadFlows": [{
+                "locations": [{
+                    "location": {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": uri},
+                            "region": {"startLine": 1},
+                        }
+                    }
+                }]
+            }]
+        }],
+    } for uri in py_files]
+    return {
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {"name": "semgrep", "version": "1.0", "rules": []}},
+            "results": results,
+        }],
+    }
+
+
+def _probe_run(monkeypatch, tmp_path, *, profile, changed_only, exclude=None):
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "pkg" / "app.py").write_text("cursor.execute(f'...')\n")
+    config = {
+        "profiles": {
+            "standard": {"tools": {"semgrep": True, "gitleaks": False}},
+            "quick": {"changed_only": True, "tools": {"semgrep": True, "gitleaks": False}},
+        },
+        "baseline": {"enabled": False}, "history": {"enabled": False},
+    }
+    if exclude is not None:
+        config["targets"] = {"exclude": exclude}
+    monkeypatch.setattr(runner, "load_config", lambda _: config)
+    monkeypatch.setattr(runner, "save_scan_result", lambda *a: "probe")
+    monkeypatch.setattr(runner, "detect_project", lambda target: {
+        "languages": {"python": 100}, "frameworks": [], "repo_root": str(repo),
+        "is_git_repo": True, "iac_files": [],
+    })
+
+    def fake_semgrep(target, output_dir, **kwargs):
+        sarif_path = os.path.join(output_dir, "semgrep.sarif")
+        with open(sarif_path, "w") as fh:
+            json.dump(_make_fake_semgrep_sarif(target), fh)
+        return {"tool": "semgrep", "success": True, "exit_code": 0,
+                "sarif_path": sarif_path, "json_path": None, "error_message": None}
+
+    semgrep = Mock(side_effect=fake_semgrep)
+    monkeypatch.setattr(runner, "run_semgrep", semgrep)
+    monkeypatch.setattr(runner, "run_bandit", Mock(return_value={
+        "tool": "bandit", "success": False, "error_message": "not installed"}))
+    return repo, semgrep
+
+
+def test_staged_subset_findings_map_back_to_repo_paths(monkeypatch, tmp_path):
+    repo, semgrep = _probe_run(monkeypatch, tmp_path, profile="quick", changed_only=True)
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: ["pkg/app.py"])
+
+    out = tmp_path / "results"
+    args = parse_args(["--target", str(repo / "pkg"), "--profile", "quick",
+                       "--format", "json", "--output-dir", str(out)])
+    args.changed_only = True
+    assert runner.run(args) == 0
+
+    semgrep.assert_called_once()
+    staged_root = semgrep.call_args[0][0]
+    assert "opensast-scan-" in staged_root  # scanned the staged copy, not the repo
+
+    with open(os.path.join(out, "merged.sarif")) as f:
+        merged = json.load(f)
+    uri = merged["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "pkg/app.py"
+    assert "opensast-scan-" not in uri
+    with open(os.path.join(out, "findings.json")) as f:
+        report = json.load(f)
+    assert report["total_findings"] == 1
+    dataflow = report["findings"][0].get("evidence", {}).get("dataflow", [])
+    assert dataflow and dataflow[0]["file"] == "pkg/app.py"
+
+
+def test_exclude_ancestor_not_applied_when_target_inside(monkeypatch, tmp_path):
+    repo, _ = _probe_run(monkeypatch, tmp_path, profile="standard",
+                         changed_only=False, exclude=["examples", "tests"])
+    # Layout: findings live at <repo>/examples/demo/pkg/app.py; target sits
+    # inside the excluded `examples` subtree, so the user's explicit target
+    # must override that exclusion.
+    demo = repo / "examples" / "demo" / "pkg"
+    demo.mkdir(parents=True)
+    (demo / "app.py").write_text("cursor.execute(f'...')\n")
+
+    out = tmp_path / "results"
+    args = parse_args(["--target", str(demo), "--profile", "standard",
+                       "--format", "json", "--output-dir", str(out)])
+    args.changed_only = False
+    assert runner.run(args) == 0
+    with open(os.path.join(out, "findings.json")) as f:
+        assert json.load(f)["total_findings"] == 1
+
+
+def test_exclude_still_applied_for_repo_root_scan(monkeypatch, tmp_path):
+    repo, _ = _probe_run(monkeypatch, tmp_path, profile="standard",
+                         changed_only=False, exclude=["examples"])
+    (repo / "examples" / "pkg").mkdir(parents=True)
+    (repo / "examples" / "pkg" / "app.py").write_text("cursor.execute(f'...')\n")
+
+    out = tmp_path / "results"
+    args = parse_args(["--target", str(repo), "--profile", "standard",
+                       "--format", "json", "--output-dir", str(out)])
+    args.changed_only = False
+    assert runner.run(args) == 0
+    # pkg/app.py survives; the copy under the excluded examples/ dir is dropped.
+    with open(os.path.join(out, "findings.json")) as f:
+        assert json.load(f)["total_findings"] == 1
+    with open(os.path.join(out, "merged.sarif")) as f:
+        uris = [res["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+                for res in json.load(f)["runs"][0]["results"]]
+    assert uris == ["pkg/app.py"]
+
+
+def test_effective_exclude_dirs_drops_target_ancestors():
+    from sast_runner import _effective_exclude_dirs
+    assert _effective_exclude_dirs(["examples", "tests"], "examples/python-sqli") == ["tests"]
+    assert _effective_exclude_dirs(["examples", "tests"], ".") == ["examples", "tests"]
+    assert _effective_exclude_dirs(["examples"], "examples") == []
+    assert _effective_exclude_dirs(["pkg/tests"], "pkg") == ["pkg/tests"]
+    assert _effective_exclude_dirs(["node_modules"], "pkg") == ["node_modules"]
+
+
+def test_remap_staged_path_handles_file_uri_and_pass_throughs():
+    from scan_scope import remap_staged_path
+    staged = os.path.join(tempfile.gettempdir(), "opensast-scan-x")
+    repo = os.path.join(tempfile.gettempdir(), "repo")
+    assert remap_staged_path(f"file://{staged}/pkg/app.py", staged, repo) == f"{repo}/pkg/app.py"
+    assert remap_staged_path(os.path.join(staged, "a.py"), staged, repo) == os.path.join(repo, "a.py")
+    assert remap_staged_path("pkg/app.py", staged, repo) == "pkg/app.py"  # relative passes through
+    assert remap_staged_path("/elsewhere/a.py", staged, repo) == "/elsewhere/a.py"
+
+
+def test_effective_exclude_dirs_strips_entries_for_repo_root():
+    from sast_runner import _effective_exclude_dirs
+    assert _effective_exclude_dirs(["examples/", "", "tests"], ".") == ["examples", "tests"]
+
+
+def test_language_filtered_changes_warn_instead_of_silent_zero(runner_probe, monkeypatch, caplog):
+    args, scanner, _ = runner_probe
+    args.changed_only = True
+    args.lang = "python"
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: ["README.md", "docs/guide.md"])
+    with caplog.at_level(logging.WARNING, logger="sast_runner"):
+        assert runner.run(args) == 0
+    scanner.assert_not_called()
+    assert any("none match the --lang filter" in rec.message for rec in caplog.records)
