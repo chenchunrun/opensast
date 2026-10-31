@@ -342,12 +342,24 @@ def run(args: argparse.Namespace) -> int:
     tool_timeout = args.tool_timeout or config.get("tools", {}).get("semgrep", {}).get("timeout", 300)
     scan_results: list[dict] = []
 
+    # Target-aware excludes, computed once and shared by tool invocations and
+    # the findings/SARIF filters: an exclude dir that is an ancestor of the
+    # explicit target yields to it. Semgrep prunes by directory *basename*
+    # during its walk, so passing raw excludes for a staged subset (which
+    # mirrors repo paths, e.g. <staged>/examples/...) would prune the entire
+    # subset and silently report zero.
+    exclude_dirs = [d.rstrip("/") for d in config.get("targets", {}).get("exclude", []) if d]
+    try:
+        target_rel = os.path.relpath(target, repo_root).replace(os.sep, "/")
+    except ValueError:
+        target_rel = "."
+    exclude_dirs = _effective_exclude_dirs(exclude_dirs, target_rel)
+
     if not skip_scan:
         if tools_config.get("semgrep", True) or (not tools_config and profile_name != "quick"):
             logger.info("Running Semgrep...")
             extra_configs = config.get("rules", {}).get("semgrep", [])
             config_paths = [c for c in extra_configs if c != "auto"] if extra_configs else None
-            exclude_dirs = config.get("targets", {}).get("exclude", [])
             result = run_semgrep(
                 scan_target, output_dir,
                 config_paths=config_paths,
@@ -500,13 +512,8 @@ def run(args: argparse.Namespace) -> int:
     # Drop findings under configured exclude dirs (e.g. intentionally-vulnerable
     # demos, rule fixtures, test corpora). Applied tool-agnostically here so
     # gitleaks/checkov findings are filtered even though only semgrep receives
-    # exclude_dirs at the CLI.
-    exclude_dirs = [d.rstrip("/") for d in config.get("targets", {}).get("exclude", []) if d]
-    try:
-        target_rel = os.path.relpath(target, repo_root).replace(os.sep, "/")
-    except ValueError:
-        target_rel = "."
-    exclude_dirs = _effective_exclude_dirs(exclude_dirs, target_rel)
+    # exclude_dirs at the CLI. `exclude_dirs` is already target-aware (see the
+    # computation before the tool runs).
     if exclude_dirs:
         before = len(all_findings)
 

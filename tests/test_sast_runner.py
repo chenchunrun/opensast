@@ -683,3 +683,26 @@ def test_language_filtered_changes_warn_instead_of_silent_zero(runner_probe, mon
         assert runner.run(args) == 0
     scanner.assert_not_called()
     assert any("none match the --lang filter" in rec.message for rec in caplog.records)
+
+
+def test_staged_subset_gets_target_aware_excludes(monkeypatch, tmp_path):
+    """Staged trees mirror repo paths (e.g. examples/...); semgrep's basename
+    pruning must not receive ancestor excludes of the explicit target, or the
+    whole staged subset gets pruned and the scan silently reports zero."""
+    repo, semgrep = _probe_run(monkeypatch, tmp_path, profile="quick",
+                               changed_only=True, exclude=["examples", "tests"])
+    demo = repo / "examples" / "demo"
+    (demo / "pkg").mkdir(parents=True)
+    (demo / "pkg" / "app.py").write_text("cursor.execute(f'...')\n")
+    monkeypatch.setattr(runner, "get_changed_files", lambda _: ["examples/demo/pkg/app.py"])
+
+    out = tmp_path / "results"
+    args = parse_args(["--target", str(demo), "--profile", "quick",
+                       "--format", "json", "--output-dir", str(out)])
+    args.changed_only = True
+    assert runner.run(args) == 0
+
+    semgrep.assert_called_once()
+    passed_excludes = semgrep.call_args.kwargs.get("exclude_dirs")
+    assert "examples" not in (passed_excludes or [])
+    assert "tests" in (passed_excludes or [])  # non-ancestor excludes still passed
