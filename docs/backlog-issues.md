@@ -54,7 +54,7 @@ describes *direction*, this doc tracks *concrete tickets*.
 |------|:------:|-----------|-----|
 | `js.security.hardcoded-iv` | 8/8 FP | `let $IV = "..."` matched any string literal incl. `''` | Require the value to be 16+ hex chars; empty/short strings no longer match |
 | `javascript.security.eval-usage` | FP | `setTimeout($VAR,...)` / `setInterval($VAR,...)` treated as eval | Removed timers from the rule — function-arg timers are not eval |
-| `javascript.security.ssrf-fetch` | 7/7 FP | `$CLIENT.get($USER_INPUT)` matched `Map.get`/`ref.current.get` | Replaced generic client with named HTTP clients (fetch, axios, got, http, https, request) |
+| `javascript.security.ssrf-fetch` | 7/7 FP | `$CLIENT.get($USER_INPUT)` matched `Map.get`/`ref.current.get` | Replaced generic client with named HTTP clients (fetch, axios, got, http, https, request); rule later deleted 2026-11-01 in favor of `taint-ssrf` — the named-client sink list was ported into the taint rule |
 | `javascript.security.deserialize-unsafe` | FP | `JSON.parse` flagged as CWE-502 | Removed `JSON.parse` (parses data only, no code execution); kept real RCE sink `serialize.unserialize` |
 
 - **Verification:** regression target of the exact FP patterns → **0 findings**;

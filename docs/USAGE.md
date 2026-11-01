@@ -17,6 +17,8 @@
 
 **关键认知：** 规则引擎很吵（实测一个项目 12 条发现里 11 条误报）。真正价值在 Tier2/Tier3（找出规则漏报）+ triage（去噪）+ fix（生成补丁）。
 
+**三层分工边界：** 规则层是**定位器**（真实项目实测：站点召回 6/7，但精确率 0.98% — 1126 条原始发现只有 11 条站点为真）；LLM 层是**裁判**（分诊 TP/FP、补证据链）；Agent 层是**意图层**（跨模块数据流、业务逻辑缺口，不可作 CI 门禁依据）。分层实测数据见 [KoKoApp 分层基线](../benchmark/FIELD_STUDY_KOKOAPP_2026-10-31.md)。
+
 ---
 
 ## 2. 标准流水线（happy path）
@@ -108,6 +110,8 @@ python3 .claude/skills/sast-scan/tools/baseline_manager.py suppress \
 5. **`--target` 与位置参数都支持** —— `sast_runner.py --target .` 和 `sast_runner.py .` 等价（CI/README 用前者）。
 6. **显式子目录目标会改变 `--changed-only` 语义** —— 变更文件先与目标目录求交集（路径按仓库根相对计算）；目标下无变更时自动回退全扫该目录（带 WARNING），不会静默报 0。目标 == 仓库根时保持"无变更即跳过"。
 7. **显式指定排除目录内的目标会覆盖排除** —— `targets.exclude`（如 `examples`、`tests`）只裁剪扫描范围*内部*的子树；`/sast-scan examples/python-sqli` 这类显式目标不受祖先排除影响，findings 与 `merged.sarif` 均一致。
+8. **测试代码默认从 findings 里剔除，但密钥扫描器除外** —— fast filter 会丢弃 test/e2e/cypress/spec 后缀等路径的发现（实测占总量的 62.9%）；Gitleaks/CodeQL 的发现**不剔除** — 测试文件里提交的密钥依然是密钥。归档/快照目录（如 `docs/**/evidence/`、`.worktrees/`）建议在项目 `config.yml` 的 `targets.exclude` 里排除：同一源文件的多份拷贝会把计数放大约 2 倍。
+9. **带 taint 孪生兄弟的 pattern 规则会被删除** —— SSRF/路径穿越的 pattern 规则（372 条发现、~100% 误报）已让位于 taint 版本（实测与 ground truth 一致）。若自定义规则集里两者并存，优先信任 taint 版。
 
 ---
 

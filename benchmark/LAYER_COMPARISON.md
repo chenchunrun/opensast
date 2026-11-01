@@ -4,6 +4,11 @@ This measures a fixed rule baseline, then the incremental effect of structured
 LLM review and Agent review. It does not invoke AI APIs or execute target code.
 AI analysis remains inside the Skill session.
 
+Field studies of real (private) targets are recorded separately, e.g.
+[FIELD_STUDY_KOKOAPP_2026-10-31.md](FIELD_STUDY_KOKOAPP_2026-10-31.md) —
+calibration data with known circularity limits, never a substitute for this
+reproducible instrument.
+
 ## Dataset and scope
 
 `datasets/whitebox-v1/manifest.json` pins 14 small, synthetic paired cases across
