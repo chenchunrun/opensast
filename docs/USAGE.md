@@ -112,6 +112,7 @@ python3 .claude/skills/sast-scan/tools/baseline_manager.py suppress \
 7. **显式指定排除目录内的目标会覆盖排除** —— `targets.exclude`（如 `examples`、`tests`）只裁剪扫描范围*内部*的子树；`/sast-scan examples/python-sqli` 这类显式目标不受祖先排除影响，findings 与 `merged.sarif` 均一致。
 8. **测试代码默认从 findings 里剔除，但密钥扫描器除外** —— fast filter 会丢弃 test/e2e/cypress/spec 后缀等路径的发现（实测占总量的 62.9%）；Gitleaks/CodeQL 的发现**不剔除** — 测试文件里提交的密钥依然是密钥。归档/快照目录（如 `docs/**/evidence/`、`.worktrees/`）建议在项目 `config.yml` 的 `targets.exclude` 里排除：同一源文件的多份拷贝会把计数放大约 2 倍。
 9. **带 taint 孪生兄弟的 pattern 规则会被删除** —— SSRF/路径穿越的 pattern 规则（372 条发现、~100% 误报）已让位于 taint 版本（实测与 ground truth 一致）。若自定义规则集里两者并存，优先信任 taint 版。
+10. **跨仓库调用 runner 必须显式传 `--config` 与 `--output-dir`** —— 从别的仓库 cwd 发起 `sast_runner.py <目标>` 时，目标项目的 `.claude/sast/config.yml` 不会被自动发现：semgrep 会啃到 323MB 的 docs 树直至超时，gitleaks 失去排除项。显式传 `--config <目标>/.claude/sast/config.yml --output-dir <目标>/.claude/sast/results` 复现项目内扫描条件。
 
 ---
 

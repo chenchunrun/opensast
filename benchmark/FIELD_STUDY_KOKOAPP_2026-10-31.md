@@ -102,6 +102,31 @@ Duplicate-source note: without the per-project `docs/` exclude, archived
 evidence-snapshot copies of the same BFF file inflate counts ~1.9× (soc2
 29→55). Per-project exclude hygiene is worth as much as rule fixes.
 
+## End-to-end rescan (2026-11-01, after rule + filter fixes)
+
+Same orchestrator, same profile, same per-project config:
+
+| Measure | Baseline | Rescan | Δ |
+|---|---|---|---|
+| Total findings | 1126 | **249** | −78% |
+| Gate blocking (≥ high) | 573 | **75** | −87% |
+| Test-shaped paths in report | 449 | 5 | −444 |
+| Semgrep findings | 1110 | 232 | −878 |
+| Scan duration | 334 s | 338 s | ~same |
+
+Ground-truth anchor sites all preserved: soc2's 13 in-handler-auth lines in
+`bff/index.mjs` (1119…3640), timing secret compares at 134/2983, and the
+confirmed TP at `bff/index.mjs:3044` (now raised by
+`js.security.timing-unsafe-secret-compare`, HIGH). The gitleaks carve-out
+retains 5 secrets detected in test files. `xss-response-send` (22) remains
+the known noisy pattern rule and the next demotion candidate.
+
+Operational note: invoking the runner from a different repository's cwd
+silently drops the target's per-project config (semgrep then chews the
+323 MB docs tree and times out, and gitleaks loses its excludes). Always
+pass `--config <target>/.claude/sast/config.yml --output-dir <target>/.claude/sast/results`
+when scanning cross-repo.
+
 ## Caveats
 
 - **Adjudication independence: not established.** The same session produced
