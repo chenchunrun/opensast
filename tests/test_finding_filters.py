@@ -30,11 +30,32 @@ def test_test_code_paths():
     assert is_test_code("my.test.js")
 
 
+def test_test_code_paths_suffix_conventions():
+    # Field-regression cases from the 2026-10-31 KoKoApp scan, where 65.6% of
+    # surviving findings sat in files these conventions missed.
+    assert is_test_code("server/bff/matrix-room-lifecycle.test.mjs")  # .mjs ext
+    assert is_test_code("e2e/alert-delivery-ack.spec.ts")  # kebab-case basename
+    assert is_test_code("pkg/login.test.cjs")
+    assert is_test_code("e2e/foo.spec.ts")  # e2e dir
+    assert is_test_code("cypress/integration/home.spec.ts")  # cypress dir
+    assert is_test_code("__mocks__/api.js")
+
+
 def test_not_test_code():
     assert not is_test_code("src/app.py")
     assert not is_test_code("lib/handler.go")
     assert not is_test_code("controllers/user.py")
     assert not is_test_code("testing_framework/README.md")  # path component but as directory
+
+
+def test_not_test_code_near_misses():
+    # Substring safety: shared substrings must not trigger the pattern.
+    assert not is_test_code("src/contest.ts")
+    assert not is_test_code("src/latest_data.py")
+    assert not is_test_code("src/protest_sign.py")
+    assert not is_test_code("src/e2e-helper.ts")  # e2e must match a whole segment
+    assert not is_test_code("src/spectate.ts")
+    assert not is_test_code("server/bff/index.mjs")
 
 
 def test_generated_code_paths():
@@ -44,6 +65,9 @@ def test_generated_code_paths():
     assert is_generated_code("app.generated.ts")
     assert is_generated_code("api.pb.go")
     assert is_generated_code("styles.min.css")
+    # parcel-cache had drifted: matched by the context filters' local copy but
+    # not by this one, so fast-filter and post-filter classified it differently.
+    assert is_generated_code(".parcel-cache/src/abc.js")
 
 
 def test_not_generated_code():

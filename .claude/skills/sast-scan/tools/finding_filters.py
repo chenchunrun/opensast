@@ -7,14 +7,14 @@ from collections import defaultdict
 SEVERITY_LEVELS = ["critical", "high", "medium", "low", "info"]
 
 TEST_PATH_PATTERN = re.compile(
-    r"(?:^|/)(?:test|tests|__tests__|spec|specs|testing|fixtures|mocks|stubs)(?:/|$)|"
-    r"(?:^|/|_)(?:test_|spec_)[\w]+\.(?:py|js|ts|go|java|rb|rs)$|"
-    r"(?:^|/)[\w]+(?:_test|_spec)\.(?:py|js|ts|go|java|rb|rs)$|"
-    r"(?:^|/)[\w]+\.(?:test|spec)\.(?:py|js|ts|tsx|jsx|go|java|rb|rs)$"
+    r"(?:^|/)(?:test|tests|__tests__|spec|specs|testing|fixtures|mocks|stubs|__mocks__|e2e|cypress)(?:/|$)|"
+    r"(?:^|/|_)(?:test_|spec_)[^/]+\.(?:py|js|mjs|cjs|ts|tsx|jsx|go|java|kt|rb|rs|cs|php)$|"
+    r"(?:^|/)[^/]+(?:_test|_spec)\.(?:py|js|mjs|cjs|ts|tsx|jsx|go|java|kt|rb|rs|cs|php)$|"
+    r"(?:^|/)[^/]+\.(?:test|spec)\.(?:py|js|mjs|cjs|ts|tsx|jsx|go|java|kt|rb|rs|cs|php)$"
 )
 
 GENERATED_PATH_PATTERN = re.compile(
-    r"(?:^|/)(?:vendor|node_modules|dist|build|\.next|\.nuxt|out|\.gomodcache|\.cache)(?:/|$)|"
+    r"(?:^|/)(?:vendor|node_modules|dist|build|\.next|\.nuxt|out|\.gomodcache|\.cache|\.parcel-cache)(?:/|$)|"
     r"(?:\.generated\.|\.pb\.go|\.pb\.rs|_gen\.|\.min\.js|\.min\.css|\.bundle\.)|"
     r"(?:^|/)(?:testdata|testfixtures|test-harness|fixture)(?:/|$)"
 )

@@ -134,6 +134,20 @@ def test_fast_filter_test_code():
     assert result[0]["file"] == "api/handler.go"
 
 
+def test_fast_filter_keeps_high_precision_tool_findings_in_tests():
+    # Secrets reported by gitleaks in test files are removed from triage noise
+    # but must not disappear silently: a committed credential in a test is
+    # still a committed credential. High-precision tools are exempt from the
+    # test-code drop (field finding, KoKoApp scan 2026-10-31: all six
+    # CRITICAL gitleaks hits sat in test/e2e files).
+    semgrep_in_test = _make_finding(file="e2e/spec.test.ts", tool="semgrep")
+    gitleaks_in_test = _make_finding(file="e2e/spec.test.ts", tool="gitleaks")
+    codeql_in_test = _make_finding(file="src/app.test.mjs", tool="codeql")
+    result = apply_fast_filters([semgrep_in_test, gitleaks_in_test, codeql_in_test])
+    kept_tools = sorted(f["tool"] for f in result)
+    assert kept_tools == ["codeql", "gitleaks"]
+
+
 def test_fast_filter_empty():
     assert apply_fast_filters([]) == []
 

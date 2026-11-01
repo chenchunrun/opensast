@@ -8,8 +8,33 @@ import json
 import logging
 import os
 import re
+import sys
 from collections import Counter
 from datetime import datetime, timezone
+
+# Single source of truth for test/generated path detection lives in
+# finding_filters; importing it here keeps the fast filters and the context
+# filters from drifting apart on which files count as test/generated code.
+# try/except because tests load this module via spec_from_file_location, which
+# bypasses sys.path — the insert fallback only runs when tools/ is not already
+# importable, instead of unconditionally mutating the process-wide path.
+try:
+    from finding_filters import (  # noqa: E402,F401
+        GENERATED_PATH_PATTERN,
+        HIGH_PRECISION_TOOLS,
+        TEST_PATH_PATTERN,
+        is_generated_code,
+        is_test_code,
+    )
+except ImportError:
+    sys.path.insert(0, os.path.dirname(__file__))
+    from finding_filters import (  # noqa: E402,F401
+        GENERATED_PATH_PATTERN,
+        HIGH_PRECISION_TOOLS,
+        TEST_PATH_PATTERN,
+        is_generated_code,
+        is_test_code,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -165,20 +190,6 @@ GO_SECURITY_PATTERNS = re.compile(
     r"os\.Getenv|viper\.Get|filepath\.Join|exec\.LookPath)",
 )
 
-GENERATED_PATH_PATTERN = re.compile(
-    r"(?:^|/)(?:vendor|node_modules|dist|build|\.next|\.nuxt|out|\.gomodcache|"
-    r"\.cache|\.parcel-cache)(?:/|$)|"
-    r"(?:\.generated\.|\.pb\.go|\.pb\.rs|_gen\.|\.min\.js|\.min\.css|\.bundle\.)|"
-    r"(?:^|/)(?:testdata|testfixtures|test-harness|fixture)(?:/|$)",
-)
-
-TEST_PATH_PATTERN = re.compile(
-    r"(?:^|/)(?:test|tests|__tests__|spec|specs|testing|fixtures|mocks|stubs)(?:/|$)|"
-    r"(?:^|/|_)(?:test_|spec_)[\w]+\.(?:py|js|ts|go|java|rb|rs)$|"
-    r"(?:^|/)[\w]+(?:_test|_spec)\.(?:py|js|ts|go|java|rb|rs)$|"
-    r"(?:^|/)[\w]+\.(?:test|spec)\.(?:py|js|ts|tsx|jsx|go|java|rb|rs)$",
-)
-
 SENSITIVE_FILE_BLOCKLIST = re.compile(
     r"\.(?:env|pem|key|p12|pfx|jks|keystore)$|"
     r"(?:^|/)(?:credentials|secrets?|\.htpasswd|\.netrc|\.npmrc|\.pypirc)$",
@@ -201,22 +212,22 @@ SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 # Fast deterministic filters
 # ============================================================
 
-def is_generated_code(file_path: str) -> bool:
-    return bool(GENERATED_PATH_PATTERN.search(file_path.replace("\\", "/")))
-
-
-def is_test_code(file_path: str) -> bool:
-    return bool(TEST_PATH_PATTERN.search(file_path.replace("\\", "/")))
-
+# is_generated_code and is_test_code are imported from finding_filters
+# (single source of truth).
 
 def apply_fast_filters(findings: list[dict]) -> list[dict]:
-    """Remove findings from generated code and test code."""
+    """Remove findings from generated code and test code.
+
+    High-precision tools (gitleaks, codeql) are exempt from the test-code
+    drop: a secret committed in a test file is still a secret, and silently
+    swallowing it would trade a triage-noise win for a false negative.
+    """
     result = []
     for f in findings:
         file_path = f.get("file", "").replace("\\", "/")
         if is_generated_code(file_path):
             continue
-        if is_test_code(file_path):
+        if is_test_code(file_path) and f.get("tool") not in HIGH_PRECISION_TOOLS:
             continue
         result.append(f)
     return result
