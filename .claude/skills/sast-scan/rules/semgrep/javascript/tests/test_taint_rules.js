@@ -27,6 +27,29 @@ function taintXss(req, res) {
 
   // ok: javascript.security.taint-xss
   res.send("static");
+
+  // SSE event-stream frames are the safe wire idiom (text/event-stream);
+  // the sanitizer is scoped to this exact frame shape.
+  // ok: javascript.security.taint-xss
+  res.write(`data: ${JSON.stringify({ msg })}\n\n`);
+  // Concat form of the same frame, string tail only.
+  // ok: javascript.security.taint-xss
+  res.write("data: " + JSON.stringify({ msg }) + "\n\n");
+
+  // Partial string interpolation of unencoded request data still flows.
+  // ruleid: javascript.security.taint-xss
+  res.write(`data: ${msg}\n\n`);
+
+  // A tainted operand after JSON.stringify is NOT covered by the scoped
+  // sanitizer — review found a bare JSON.stringify sanitizer would hide
+  // real HTML-context XSS, so this stays visible.
+  // ruleid: javascript.security.taint-xss
+  res.write("data: " + JSON.stringify({ msg }) + msg);
+
+  // HTML context: res.send defaults to text/html and JSON.stringify does
+  // not escape < or > — this must stay detected (review HIGH finding).
+  // ruleid: javascript.security.taint-xss
+  res.send(JSON.stringify({ name: req.query.name }));
 }
 
 function taintPath(req) {
@@ -36,6 +59,15 @@ function taintPath(req) {
 
   // ok: javascript.security.taint-path-traversal
   fs.readFile("/var/app/data.json", "utf8", () => {});
+
+  // Write/delete sinks inherited from the deleted pattern twin (2026-11-01).
+  // ruleid: javascript.security.taint-path-traversal
+  fs.writeFile(userPath, "data", () => {});
+  // ruleid: javascript.security.taint-path-traversal
+  fs.unlinkSync(userPath);
+
+  // ok: javascript.security.taint-path-traversal
+  fs.writeFile("/var/app/data.json", "data", () => {});
 }
 
 function taintSsrf(req) {
@@ -45,6 +77,15 @@ function taintSsrf(req) {
 
   // ok: javascript.security.taint-ssrf
   fetch("https://api.example.com/health");
+
+  // Client sinks inherited from the deleted pattern twin (2026-11-01).
+  // ruleid: javascript.security.taint-ssrf
+  got(url);
+  // ruleid: javascript.security.taint-ssrf
+  https.get(url, (r) => r);
+
+  // ok: javascript.security.taint-ssrf
+  got("https://api.example.com/health");
 }
 
 function taintRedirect(req, res) {

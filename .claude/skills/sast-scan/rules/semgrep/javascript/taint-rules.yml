@@ -103,6 +103,17 @@ rules:
       - pattern: parseInt(...)
       - pattern: Number.parseInt(...)
       - pattern: encodeURIComponent(...)
+      # SSE event-stream frames are not an HTML injection context: the safe
+      # wire idiom is res.write(`data: ${JSON.stringify(...)}\n\n`) under
+      # content-type text/event-stream. Scoped to this exact frame shape on
+      # purpose (field regression 2026-10-31: every taint-xss hit on a real
+      # app was this idiom). A bare JSON.stringify(...) sanitizer would also
+      # suppress real HTML-context XSS: Express res.send(JSON.stringify(...))
+      # defaults to text/html and JSON does not escape < or >.
+      - pattern: |
+          $RES.write(`data: ${JSON.stringify(...)}\n\n`)
+      - pattern: |
+          $RES.write("data: " + JSON.stringify(...) + "...")
     pattern-propagators:
       - pattern: $X + $Y
         from: $X
@@ -154,6 +165,14 @@ rules:
           - pattern: fs.readFile($PATH, ...)
           - pattern: fs.readFileSync($PATH, ...)
           - pattern: require('fs').readFile($PATH, ...)
+          # Sink parity with the deleted pattern twin (2026-11-01): the twin
+          # also covered write/delete sinks. The taint source gate keeps them
+          # precise where the twin's any-non-literal-arg match was ~100% FP.
+          - pattern: $FS.writeFile($PATH, ...)
+          - pattern: $FS.writeFileSync($PATH, ...)
+          - pattern: $FS.unlink($PATH)
+          - pattern: $FS.unlinkSync($PATH)
+          - pattern: $FS.createReadStream($PATH, ...)
 
   - id: javascript.security.taint-ssrf
     languages: [javascript, typescript]
@@ -193,6 +212,12 @@ rules:
           - pattern: axios.get($URL, ...)
           - pattern: axios.post($URL, ...)
           - pattern: require('http').get($URL, ...)
+          # Sink parity with the deleted pattern twin (2026-11-01).
+          - pattern: got($URL)
+          - pattern: got.get($URL, ...)
+          - pattern: http.get($URL, ...)
+          - pattern: https.get($URL, ...)
+          - pattern: request($URL, ...)
 
   - id: javascript.security.taint-open-redirect
     languages: [javascript, typescript]

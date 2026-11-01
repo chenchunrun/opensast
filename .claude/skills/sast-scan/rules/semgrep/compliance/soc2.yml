@@ -17,8 +17,17 @@ rules:
       technology: [python, javascript, typescript, java]
       compliance: ["SOC 2 CC6.1"]
     pattern-either:
-      - pattern-regex: '@app\.route\([^)]*\)\s*\ndef\s+\w+\([^)]*\):\s*\n\s*(?!@login_required)'
-      - pattern-regex: 'app\.(get|post|put|delete|patch)\s*\(\s*"[^"]*"\s*,\s*(?!requireAuth\b)'
+      # Guard-aware: suppress when ANY middleware argument (named guard,
+      # array form `[authMiddleware]`, spread chain like `...approvalAuth`,
+      # or guard-with-args such as requireRole("admin")) appears in the route
+      # call. The previous pattern allowed `\s*` to backtrack to zero width
+      # before a lookahead that only checked the first argument, so it fired
+      # even when `requireAuth` was present (146/146 false positives on a
+      # real app, 2026-10-31). Known heuristic limits: guards nested 2+ paren
+      # levels deep and inline arrow handlers with in-body auth still fire —
+      # those are the review candidates this compliance rule exists to raise.
+      - pattern-regex: '@app\.route\([^)]*\)\s*\ndef\s+\w+\([^)]*\):\s*\n\s*(?!\s*@[A-Za-z_]*(?:login|auth|permission|role|token|jwt|session)[A-Za-z_]*)'
+      - pattern-regex: 'app\.(get|post|put|delete|patch)\s*\(\s*[""''][^"'']*[""'']\s*,(?!(?:[^()]|\([^()]*\))*(?:[Aa]uth|[Gg]uard|[Tt]oken|[Ss]ession|[Pp]olicy|[Rr]ole|[Pp]ermission|[Vv]erify)[A-Za-z0-9_]*(?:\([^()]*\))?\s*[,\)\]])'
 
   # CC7.2 — System Monitoring (anomaly detection / audit logging)
   - id: soc2.logging-not-configured

@@ -36,20 +36,20 @@ res.send(`<h1>${userName}</h1>`)
 // ok: javascript.security.xss-response-send
 res.send(escapeHtml(content))
 
-// --- path-traversal ---
+// --- path-traversal (taint rule; pattern twin removed 2026-11-01) ---
 
-// ruleid: javascript.security.path-traversal
-fs.readFile(`./data/${userInput}`)
+// ruleid: javascript.security.taint-path-traversal
+fs.readFile(req.query.path)
 
-// ok: javascript.security.path-traversal
-path.join("data", "static")
+// ok: javascript.security.taint-path-traversal
+fs.readFile("config.json")
 
-// --- ssrf ---
+// --- ssrf (taint rule; pattern twin removed 2026-11-01) ---
 
-// ruleid: javascript.security.ssrf-fetch
+// ruleid: javascript.security.taint-ssrf
 fetch(req.query.url)
 
-// ok: javascript.security.ssrf-fetch
+// ok: javascript.security.taint-ssrf
 fetch("https://api.example.com/data")
 
 // --- open-redirect ---

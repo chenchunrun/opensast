@@ -12,6 +12,41 @@ if (crypto.timingSafeEqual(Buffer.from(secretToken), Buffer.from(providedToken))
   allow()
 }
 
+// Plain identifier holding a secret compared for equality -> flagged.
+// ruleid: javascript.security.timing-attack
+if (hmac === expectedHmac) {
+  deny()
+}
+
+// --- Field-regression false positives (KoKoApp scan 2026-10-31) ---
+
+// typeof guards are not secret comparisons.
+// ok: javascript.security.timing-attack
+if (typeof token !== "string") { deny() }
+
+// Null/undefined checks are not secret comparisons.
+// ok: javascript.security.timing-attack
+if (token === null) { deny() }
+// ok: javascript.security.timing-attack
+if (accessToken !== undefined) { allow() }
+
+// Length checks leak nothing about the secret value.
+// ok: javascript.security.timing-attack
+if (reqToken.length === 32) { allow() }
+
+// Property accesses (status enums) are not the secret itself.
+// ok: javascript.security.timing-attack
+if (review.secretStatus !== "recovered") { deny() }
+
+// Role/status literals are not secret material.
+// ok: javascript.security.timing-attack
+if (user.role === "admin") { allow() }
+
+// Function-shape probes are not secret comparisons.
+// ok: javascript.security.timing-attack
+if (typeof authorize === "function") { allow() }
+
+
 // ruleid: javascript.security.eval-usage
 eval(userInput)
 

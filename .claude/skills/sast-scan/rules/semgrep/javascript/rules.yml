@@ -128,99 +128,12 @@ rules:
       - pattern-not: |
           $RES.write(escapeHtml(...))
 
-  - id: javascript.security.path-traversal
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: "Detected file system operation with user-controlled path component. Validate and sanitize paths to prevent directory traversal."
-    metadata:
-      category: security
-      cwe:
-        - "CWE-22"
-      owasp:
-        - "A01:2021-Broken Access Control"
-      confidence: MEDIUM
-      technology: [javascript, typescript, nodejs]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              $FS.readFile(`...${...}...`)
-          - pattern: |
-              $FS.readFile(`...${...}...`, ...)
-          - pattern: |
-              $FS.readFile("..." + $VAR + "...")
-          - pattern: |
-              $FS.readFile("..." + $VAR)
-          - pattern: |
-              $FS.readFileSync(`...${...}...`)
-          - pattern: |
-              $FS.readFileSync("..." + $VAR + "...")
-          - pattern: |
-              $FS.readFileSync("..." + $VAR)
-          - pattern-regex: |
-              readFile(?:Sync)?\(`[^`]*\$\{
-          - pattern-regex: |
-              readFile(?:Sync)?\("[^"]*"\s*\+\s*\w+
-          - pattern: |
-              $FS.writeFile(`...${...}...`, ...)
-          - pattern: |
-              $FS.writeFile("..." + $VAR + "...", ...)
-          - pattern: |
-              $FS.unlink(`...${...}...`)
-          - pattern: |
-              $FS.unlinkSync(`...${...}...`)
-          - pattern: |
-              path.join($BASE, $USER_INPUT)
-      - pattern-not: |
-          path.join("...", "...")
-      - pattern-not: |
-          $FS.readFile("...")
-
-  - id: javascript.security.ssrf-fetch
-    languages: [javascript, typescript]
-    severity: ERROR
-    message: "Detected fetch/HTTP request with user-controlled URL. Validate URLs against an allowlist to prevent SSRF."
-    metadata:
-      category: security
-      cwe:
-        - "CWE-918"
-      owasp:
-        - "A10:2021-Server-Side Request Forgery"
-      confidence: MEDIUM
-      technology: [javascript, typescript, nodejs]
-    patterns:
-      - pattern-either:
-          - pattern: |
-              fetch($REQ.query.$FIELD)
-          - pattern: |
-              fetch($REQ.body.$FIELD)
-          - pattern: |
-              fetch($REQ.params.$FIELD)
-          - pattern: |
-              fetch($USER_INPUT)
-          - pattern: |
-              axios.get($USER_INPUT)
-          - pattern: |
-              axios.post($USER_INPUT, ...)
-          - pattern: |
-              got($USER_INPUT)
-          - pattern: |
-              got.get($USER_INPUT)
-          - pattern: |
-              http.get($USER_INPUT, ...)
-          - pattern: |
-              https.get($USER_INPUT, ...)
-          - pattern: |
-              request($USER_INPUT, ...)
-      - pattern-not: |
-          fetch("...")
-      - pattern-not: |
-          fetch(`...`)
-      - pattern-not: |
-          axios.get("...")
-      - pattern-not: |
-          got("...")
-      - pattern-not: |
-          http.get("...", ...)
+# javascript.security.path-traversal and javascript.security.ssrf-fetch
+# (pattern twins) were removed 2026-11-01: their taint-mode siblings in
+# taint-rules.yml (taint-path-traversal, taint-ssrf) are strictly better.
+# Field calibration on a real app: the pattern rules fired 172 + 201 times
+# at ~100% false-positive rate (any non-literal argument matched), while
+# the taint siblings fired 0 + 2 times matching ground truth exactly.
 
   - id: javascript.security.open-redirect
     languages: [javascript, typescript]
@@ -293,12 +206,28 @@ rules:
         - "CWE-208"
       owasp:
         - "A02:2021-Cryptographic Failures"
-      confidence: MEDIUM
+      confidence: LOW
       technology: [javascript, typescript, nodejs]
+    # Structural (not regex-on-variable-name): the left operand must be a
+    # plain secret-named identifier (no property access, so `x.secretStatus`
+    # and `token.length` do not fire), and typeof/null/undefined probes are
+    # excluded. Field calibration 2026-10-31: the old name-regex rule was
+    # 97% false positive (typeof guards, status enums, epoch equality).
     patterns:
-      - pattern-regex: (?i)\b(password|token|secret|api_key|auth)\w*\s*(===|!==)\s*
-      - pattern-not: |
-          crypto.timingSafeEqual(...)
+      - pattern-either:
+          - pattern: $SECRET === $VALUE
+          - pattern: $SECRET !== $VALUE
+      - metavariable-regex:
+          metavariable: $SECRET
+          regex: '(?i)^[a-z0-9_]*(?:password|passwd|secret|token|apikey|api_key|signature|hmac|credential|authkey|accesskey)[a-z0-9_]*$'
+      - pattern-not: typeof $X === $Y
+      - pattern-not: typeof $X !== $Y
+      - pattern-not: $X === null
+      - pattern-not: $X !== null
+      - pattern-not: $X === undefined
+      - pattern-not: $X !== undefined
+      - pattern-not: $X.length === $Y
+      - pattern-not: $X.length !== $Y
 
   - id: javascript.security.hardcoded-secret-default
     languages: [javascript, typescript]
